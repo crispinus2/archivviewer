@@ -1,11 +1,11 @@
 # Archivviewer.py
 
 import sys, codecs, os, fdb, json, tempfile, shutil, subprocess, io
-from lhafile import LhaFile
 from datetime import datetime, timedelta
 from collections import OrderedDict
 from contextlib import contextmanager
 from pathlib import Path
+from lhafile import LhaFile
 from PyPDF2 import PdfFileMerger
 import img2pdf
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog
@@ -13,7 +13,7 @@ from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot,
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-import ArchivviewerUi
+from archivviewer.forms import ArchivViewer
 
 exportThread = None
 
@@ -417,7 +417,7 @@ def exportSelectionAsPdf(table, model):
     
     model.exportAsPdf(files)
 
-if __name__ == '__main__':
+def main():
     app = QApplication(sys.argv)
     qt_translator = QTranslator()
     qt_translator.load("qt_" + QLocale.system().name(),
