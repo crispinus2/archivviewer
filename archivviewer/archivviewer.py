@@ -13,7 +13,7 @@ from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot,
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from archivviewer.forms import ArchivViewer
+from archivviewer.forms import ArchivviewerUi
 
 exportThread = None
 
@@ -46,12 +46,9 @@ def parseBlobEntry(blob):
     return { 'name': name, 'categoryId': catid }
 
 def displayErrorMessage(msg):
-    msg = QMessageBox()
-    msg.setIcon(QMessageBox.Critical)
-    msg.setText(msg)
-    msg.setStandardButtons(QMessageBox.Ok)
+    QMessageBox.critical(None, "Fehler", str(msg))
 
-class ArchivViewer(QMainWindow, ArchivviewerUi.Ui_MainWindow):
+class ArchivViewer(QMainWindow, ArchivviewerUi):
     def __init__(self, parent = None):
         super(ArchivViewer, self).__init__(parent)
         self.setupUi(self)
@@ -69,7 +66,6 @@ class FileChangeHandler(FileSystemEventHandler):
             infos = readGDT(self.gdtfile)
             try:
                 patid = int(infos["id"])
-                av.patientName.setText('{name}, {surname} [{id}]'.format(**infos))
                 self.model.setActivePatient(infos)
                 
             except TypeError:
@@ -95,14 +91,15 @@ class PdfExporter(QObject):
 class ArchivTableModel(QAbstractTableModel):    
     _startDate = datetime(1890, 1, 1)
 
-    def __init__(self, con, tmpdir, librepath, table, application):
+    def __init__(self, con, tmpdir, librepath, mainwindow, application):
         super(ArchivTableModel, self).__init__()
         self._files = []
         self._categories = []
         self._con = con
         self._tmpdir = tmpdir
         self._librepath = librepath
-        self._table = table
+        self._table = mainwindow.documentView
+        self._av = mainwindow
         self._application = application
         self._infos = {}
         self.exportThread = None
@@ -127,6 +124,7 @@ class ArchivTableModel(QAbstractTableModel):
     def setActivePatient(self, infos):
         with self.lock("setActivePatient"):        
             self.infos = infos
+            self._av.patientName.setText('{name}, {surname} [{id}]'.format(**infos))
             self.reloadData(int(infos["id"]))
     
     def data(self, index, role):
@@ -174,7 +172,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._files = []
         
         selectStm = "SELECT a.FSUROGAT, a.FTEXT, a.FEINTRAGSART, a.FZEIT, a.FDATUM FROM ARCHIV a WHERE a.FPATNR = ? ORDER BY a.FDATUM DESC, a.FZEIT DESC"
-        cur = con.cursor()
+        cur = self._con.cursor()
         cur.execute(selectStm, (patnr,))
         
         for (surogat, beschreibung, eintragsart, zeit, datum) in cur:
@@ -210,7 +208,7 @@ class ArchivTableModel(QAbstractTableModel):
             filename = self._tmpdir + os.sep + '{}.pdf'.format(file["id"])
         if not os.path.isfile(filename):
             selectStm = "SELECT a.FDATEI FROM ARCHIV a WHERE a.FSUROGAT = ?"
-            cur = con.cursor()
+            cur = self._con.cursor()
             cur.execute(selectStm, (file["id"],))
             (datei,) = cur.fetchone()
             
@@ -312,14 +310,14 @@ class ArchivTableModel(QAbstractTableModel):
         return counter
     
     def updateProgress(self, value):
-        av.exportProgress.setFormat('%d von %d' % (value, av.exportProgress.maximum()))
-        av.exportProgress.setValue(value)
+        self._av.exportProgress.setFormat('%d von %d' % (value, av.exportProgress.maximum()))
+        self._av.exportProgress.setValue(value)
                 
     def exportCompleted(self, counter, destination):
-        av.exportProgress.setFormat('')
-        av.exportProgress.setEnabled(False)
-        av.exportPdf.setEnabled(True)
-        av.documentView.setEnabled(True)
+        self._av.exportProgress.setFormat('')
+        self._av.exportProgress.setEnabled(False)
+        self._av.exportPdf.setEnabled(True)
+        self._av.documentView.setEnabled(True)
         QMessageBox.information(None, "Export abgeschlossen", "%d Dokumente wurden nach '%s' exportiert" % (counter, destination))
     
     def handleError(self, msg):
@@ -327,7 +325,7 @@ class ArchivTableModel(QAbstractTableModel):
     
     def exportAsPdf(self, filelist):   
         if len(filelist) == 0:
-            buttonReply = QMessageBox.question(av, 'PDF-Export', "Kein Dokument ausgewählt. Export aus allen Dokumenten des Patienten erzeugen?", QMessageBox.Yes | QMessageBox.No)
+            buttonReply = QMessageBox.question(self._av, 'PDF-Export', "Kein Dokument ausgewählt. Export aus allen Dokumenten des Patienten erzeugen?", QMessageBox.Yes | QMessageBox.No)
             if(buttonReply == QMessageBox.Yes):
                 with self.lock("exportAsPdf (filelist)"):
                     filelist = range(len(self._files))
@@ -471,11 +469,11 @@ def main():
             user=defaultDbUser, password=defaultDbPassword, fb_library_name=defaultClientLib)
     except Exception as e:
         displayErrorMessage(e)
-        sys.exit(app.exec_())
+        sys.exit()
     with tempdir() as myTemp:
         gdtfile = 'C:\\EAS\\aktpat.bdt'
         av = ArchivViewer()
-        tm = ArchivTableModel(con, myTemp, defaultLibrePath, av.documentView, app)
+        tm = ArchivTableModel(con, myTemp, defaultLibrePath, av, app)
         av.documentView.doubleClicked.connect(lambda: tableDoubleClicked(av.documentView, tm))
         av.documentView.setModel(tm)
         av.exportPdf.clicked.connect(lambda: exportSelectionAsPdf(av.documentView, tm))

@@ -14,7 +14,7 @@ setup(
     version='0.1.0',
     author='Julian Hartig',
     author_email='julian@whisper-net.de',
-    packages=['archivviewer'],
+    packages=['archivviewer', 'archivviewer.forms'],
     url='http://pypi.python.org/pypi/archivviewer/',
     license='GPLv3',
     description='Archive viewer for use with Medical Office AIS by Indamed',

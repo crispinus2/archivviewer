@@ -2,3 +2,5 @@
 /dist
 /MANIFEST
 /archivviewer/forms/*_ui.py
+__pycache__
+*.egg-info
