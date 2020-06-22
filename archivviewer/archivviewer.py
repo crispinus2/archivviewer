@@ -1,6 +1,6 @@
 # Archivviewer.py
 
-import sys, codecs, os, fdb, json, tempfile, shutil, subprocess, io
+import sys, codecs, os, fdb, json, tempfile, shutil, subprocess, io, winreg, configparser
 from datetime import datetime, timedelta
 from collections import OrderedDict
 from contextlib import contextmanager
@@ -427,15 +427,29 @@ def main():
         QLibraryInfo.location(QLibraryInfo.TranslationsPath))
     app.installTranslator(qtbase_translator)
     
+    try:
+        mokey = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 'SOFTWARE\\WOW6432Node\\INDAMED')
+        defaultClientLib = os.sep.join([winreg.QueryValueEx(mokey, 'DataPath')[0], '..', 'Firebird', 'bin', 'fbclient.dll'])
+    except OSError as e:
+        displayErrorMessage("Failed to open Medical Office registry key: {}".format(e))
+        sys.exit()
+        
     conffile = os.getcwd() + os.sep + "Patientenakte.cnf"
     conffile2 = os.path.dirname(os.path.realpath(__file__)) + os.sep + "Patientenakte.cnf"
     writeconf = True
-    defaultHost = "localhost"
-    defaultDb = "D:\\INDAMED\\DAT\\MEDOFF.GDB"
+    
+    try:
+        rstservini = configparser.ConfigParser()
+        rstservini.read(os.sep.join(['C:', 'WINDOWS', 'rstserv.ini']))
+        print(rstservini.sections())
+        defaultHost = rstservini["SYSTEM"]["Computername"]
+        defaultDb = os.sep.join([rstservini["MED95"]["DataPath"], "MEDOFF.GDB"])
+    except Exception as e:
+        displayErrorMessage("Failed to open rstserv.ini: {}".format(e))
+        sys.exit()
+    
     defaultDbUser = "sysdba"
-    defaultDbPassword = "masterkey"
-    defaultClientLib = None
-    defaultOutput = os.getcwd()
+    defaultDbPassword = "masterkey" 
     defaultLibrePath = "C:\Program Files\LibreOffice\program\soffice.exe"
 
     for cfg in [conffile, conffile2]:
@@ -443,18 +457,10 @@ def main():
             print("Attempting config %s" % (cfg))
             with open(cfg, 'r') as f:
                 conf = json.load(f)
-                if "hostname" in conf:
-                    defaultHost = conf["hostname"]
-                if "database" in conf:
-                    defaultDb = conf["database"]
                 if "dbuser" in conf:
                     defaultDbUser = conf["dbuser"]
                 if "dbpassword" in conf:
                     defaultDbPassword = conf["dbpassword"]
-                if "clientlib" in conf:
-                    defaultClientLib = conf["clientlib"]
-                if "output" in conf:
-                    defaultOutput = conf["output"]
                 if "libreoffice" in conf:
                     defaultLibrePath = conf["libreoffice"]
                 if cfg != conffile:
@@ -464,11 +470,14 @@ def main():
             print("Failed to load config: %s." % (e))
     
     print("Client lib is %s" % (defaultClientLib))
+    print("DB Path is %s on %s" % (defaultDb, defaultHost))
     try:
+        print("Connecting db")
         con = fdb.connect(host=defaultHost, database=defaultDb, 
             user=defaultDbUser, password=defaultDbPassword, fb_library_name=defaultClientLib)
+        print("Connection established.")
     except Exception as e:
-        displayErrorMessage(e)
+        displayErrorMessage('Fehler beim Verbinden mit der Datenbank: {}'.format(e))
         sys.exit()
     with tempdir() as myTemp:
         gdtfile = 'C:\\EAS\\aktpat.bdt'
