@@ -9,14 +9,16 @@ except ImportError:
     build_ui = None  # user won't have pyqt_distutils when deploying
     cmdclass = {}
 
+version='04'
+
 setup(
     name='ArchivViewer',
-    version='03',
+    version=version,
     author='Julian Hartig',
     author_email='julian@whisper-net.de',
     packages=['archivviewer', 'archivviewer.forms'],
     url='https://github.com/crispinus2/archivviewer/',
-    download_url = 'https://github.com/crispinus2/archivviewer/archive/v_03.tar.gz',
+    download_url = 'https://github.com/crispinus2/archivviewer/archive/v_' + version + '.tar.gz',
     license='GPLv3',
     description='Archive viewer for use with Medical Office AIS by Indamed',
     install_requires=[
