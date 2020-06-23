@@ -61,7 +61,6 @@ class FileChangeHandler(FileSystemEventHandler):
         self.model = model
     
     def on_modified(self, event):
-        print(f'event type: {event.event_type}  path : {event.src_path}')
         if self.gdtfile == event.src_path:
             infos = readGDT(self.gdtfile)
             try:
@@ -112,18 +111,16 @@ class ArchivTableModel(QAbstractTableModel):
     @contextmanager
     def lock(self, msg=None):
         if msg:
-            #print("Acquiring lock for {}.".format(msg))
             pass
         self.mutex.lock()
         yield
         if msg:
-            #print("Releasing lock for {}.".format(msg))
             pass
         self.mutex.unlock()
     
     def setActivePatient(self, infos):
         with self.lock("setActivePatient"):        
-            self.infos = infos
+            self._infos = infos
             self._av.patientName.setText('{name}, {surname} [{id}]'.format(**infos))
             self.reloadData(int(infos["id"]))
     
@@ -185,8 +182,6 @@ class ArchivTableModel(QAbstractTableModel):
         
         del cur
         
-        print("Found %d files." % (len(self._files)))
-        
         self.endResetModel()
         self._table.resizeColumnsToContents()
         self._table.horizontalHeader().setStretchLastSection(True)
@@ -199,7 +194,6 @@ class ArchivTableModel(QAbstractTableModel):
         for blobs in cur:
             self._categories = parseBlobs(blobs)
             break
-        print("Found %d categories" % (len(self._categories)))
         del cur
     
     def generateFile(self, rowIndex, errorSlot = None):
@@ -310,7 +304,7 @@ class ArchivTableModel(QAbstractTableModel):
         return counter
     
     def updateProgress(self, value):
-        self._av.exportProgress.setFormat('%d von %d' % (value, av.exportProgress.maximum()))
+        self._av.exportProgress.setFormat('%d von %d' % (value, self._av.exportProgress.maximum()))
         self._av.exportProgress.setValue(value)
                 
     def exportCompleted(self, counter, destination):
@@ -341,8 +335,9 @@ class ArchivTableModel(QAbstractTableModel):
         except:
             pass
             
-        outfilename = os.sep.join([outfiledir, 'Patientenakte_%d_%s_%s_%s-%s.pdf' % (int(infos["id"]), infos["name"], infos["surname"], infos["birthdate"], datetime.now().strftime('%Y%m%d%H%M%S'))])
-        destination, _ = QFileDialog.getSaveFileName(av, "Auswahl als PDF exportieren", outfilename, "PDF-Datei (*.pdf)")
+        outfilename = os.sep.join([outfiledir, 'Patientenakte_%d_%s_%s_%s-%s.pdf' % (int(self._infos["id"]), 
+            self._infos["name"], self._infos["surname"], self._infos["birthdate"], datetime.now().strftime('%Y%m%d%H%M%S'))])
+        destination, _ = QFileDialog.getSaveFileName(self._av, "Auswahl als PDF exportieren", outfilename, "PDF-Datei (*.pdf)")
         if len(destination) > 0:
             try:
                 os.makedirs(os.path.dirname(dirconfpath), exist_ok = True)
@@ -351,11 +346,11 @@ class ArchivTableModel(QAbstractTableModel):
             except:
                 pass
                 
-            av.exportPdf.setEnabled(False)
-            av.documentView.setEnabled(False)
-            av.exportProgress.setEnabled(True)
-            av.exportProgress.setRange(0, len(filelist))
-            av.exportProgress.setFormat('0 von %d' % (len(filelist)))
+            self._av.exportPdf.setEnabled(False)
+            self._av.documentView.setEnabled(False)
+            self._av.exportProgress.setEnabled(True)
+            self._av.exportProgress.setRange(0, len(filelist))
+            self._av.exportProgress.setFormat('0 von %d' % (len(filelist)))
             self.pdfExporter = PdfExporter(self, filelist, destination)
             self.exportThread = QThread()
             self.pdfExporter.moveToThread(self.exportThread)
@@ -365,8 +360,6 @@ class ArchivTableModel(QAbstractTableModel):
             self.pdfExporter.error.connect(self.handleError)
             self.exportThread.started.connect(self.pdfExporter.work)
             self.exportThread.start()
-            print("Export thread started")
-            
 
 def readGDT(gdtfile):
     grabinfo = {
@@ -436,12 +429,10 @@ def main():
         
     conffile = os.getcwd() + os.sep + "Patientenakte.cnf"
     conffile2 = os.path.dirname(os.path.realpath(__file__)) + os.sep + "Patientenakte.cnf"
-    writeconf = True
-    
+        
     try:
         rstservini = configparser.ConfigParser()
-        rstservini.read(os.sep.join(['C:', 'WINDOWS', 'rstserv.ini']))
-        print(rstservini.sections())
+        rstservini.read(os.sep.join([os.environ["SYSTEMROOT"], 'rstserv.ini']))
         defaultHost = rstservini["SYSTEM"]["Computername"]
         defaultDb = os.sep.join([rstservini["MED95"]["DataPath"], "MEDOFF.GDB"])
     except Exception as e:
@@ -463,8 +454,6 @@ def main():
                     defaultDbPassword = conf["dbpassword"]
                 if "libreoffice" in conf:
                     defaultLibrePath = conf["libreoffice"]
-                if cfg != conffile:
-                    writeconf = False
             break
         except Exception as e:
             print("Failed to load config: %s." % (e))
@@ -479,8 +468,24 @@ def main():
     except Exception as e:
         displayErrorMessage('Fehler beim Verbinden mit der Datenbank: {}'.format(e))
         sys.exit()
+        
+    try:
+        cur = con.cursor()
+        stm = "SELECT FVARVALUE FROM MED95INI WHERE FCLIENTNAME=? AND FVARNAME='PatexportDatei'"
+        cur.execute(stm, (os.environ["COMPUTERNAME"],))
+        res = cur.fetchone()
+        if res is None:
+            raise Exception("Keine Konfiguration für den Namen '{}' hinterlegt!".format(os.environ["COMPUTERNAME"]))
+            
+        gdtfile = res[0][:-1].decode('windows-1252')
+        del cur
+        if not os.path.isdir(os.path.dirname(gdtfile)):
+            raise Exception("Ungültiger Pfad: '{}'. Bitte korrekten Pfad für Patientenexportdatei im Datenpflegesystem konfigurieren.".format(gdtfile))
+    except Exception as e:
+        displayErrorMessage("Fehler beim Feststellen des Exportpfades: {}".format(e))
+        sys.exit()
+        
     with tempdir() as myTemp:
-        gdtfile = 'C:\\EAS\\aktpat.bdt'
         av = ArchivViewer()
         tm = ArchivTableModel(con, myTemp, defaultLibrePath, av, app)
         av.documentView.doubleClicked.connect(lambda: tableDoubleClicked(av.documentView, tm))
@@ -499,8 +504,7 @@ def main():
         
         try:
             infos = readGDT(gdtfile)
-            av.patientName.setText('{name}, {surname} [{id}]'.format(**infos))
-            tm.reloadData(int(infos["id"]))
+            tm.setActivePatient(infos)
         except Exception as e:
             print("While loading GDT file: %s" % (e))
         
