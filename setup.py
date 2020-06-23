@@ -28,7 +28,7 @@ setup(
         "pyqt-distutils"
     ],
     entry_points = {
-        "console_scripts": ['archivviewer = archivviewer.archivviewer:main']
+        "gui_scripts": ['archivviewer = archivviewer.archivviewer:main']
     },
     cmdclass=cmdclass,
     classifiers = [
