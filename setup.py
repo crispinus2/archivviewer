@@ -15,7 +15,8 @@ setup(
     author='Julian Hartig',
     author_email='julian@whisper-net.de',
     packages=['archivviewer', 'archivviewer.forms'],
-    url='http://pypi.python.org/pypi/archivviewer/',
+    url='https://github.com/crispinus2/archivviewer/',
+    download_url = 'https://github.com/crispinus2/archivviewer/archive/v_01.tar.gz',
     license='GPLv3',
     description='Archive viewer for use with Medical Office AIS by Indamed',
     install_requires=[
@@ -29,5 +30,15 @@ setup(
     entry_points = {
         "console_scripts": ['archivviewer = archivviewer.archivviewer:main']
     },
-    cmdclass=cmdclass
+    cmdclass=cmdclass,
+    classifiers = [
+        'Development Status :: 3 - Alpha',      
+        'Intended Audience :: Healthcare Industry',      
+        'Topic :: Utilities',
+        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',   
+        'Programming Language :: Python :: 3',      
+        'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6'
+    ]
 )
