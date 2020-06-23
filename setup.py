@@ -25,7 +25,8 @@ setup(
         "img2pdf >= 0.3.6",
         "PyQt5 >= 5.15.0",
         "watchdog >= 0.10.2",
-        "pyqt-distutils"
+        "pyqt-distutils",
+        "fdb"
     ],
     entry_points = {
         "gui_scripts": ['archivviewer = archivviewer.archivviewer:main']
