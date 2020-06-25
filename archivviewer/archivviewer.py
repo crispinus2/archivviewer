@@ -142,8 +142,11 @@ class ArchivTableModel(QAbstractTableModel):
     def setActivePatient(self, infos):
         with self.lock("setActivePatient"):        
             self._infos = infos
-            self._av.patientName.setText('{name}, {surname} [{id}]'.format(**infos))
-            self._av.setWindowTitle('Archiv Viewer - {name}, {surname} [{id}]'.format(**infos))
+            unb = infos["birthdate"]
+            newinfos =  { **infos, 'birthdate': '{}.{}.{}'.format(unb[0:2], unb[2:4], unb[4:8]) }
+            labeltext = '{name}, {surname} *{birthdate} [{id}]'.format(**newinfos)
+            self._av.patientName.setText(labeltext)
+            self._av.setWindowTitle('Archiv Viewer - {}'.format(labeltext))
             self.reloadData(int(infos["id"]))
     
     def data(self, index, role):
