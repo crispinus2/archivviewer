@@ -115,7 +115,14 @@
     </property>
     <addaction name="action_about"/>
    </widget>
+   <widget class="QMenu" name="menuFenster">
+    <property name="title">
+     <string>Fenster</string>
+    </property>
+    <addaction name="actionStayOnTop"/>
+   </widget>
    <addaction name="menu_Datei"/>
+   <addaction name="menuFenster"/>
    <addaction name="menu_Hilfe"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -130,6 +137,14 @@
   <action name="action_about">
    <property name="text">
     <string>&amp;Über...</string>
+   </property>
+  </action>
+  <action name="actionStayOnTop">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>im Vordergrund bleiben</string>
    </property>
   </action>
  </widget>

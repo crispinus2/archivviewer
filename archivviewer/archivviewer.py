@@ -9,11 +9,12 @@ from lhafile import LhaFile
 from PyPDF2 import PdfFileMerger
 import img2pdf
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog
-from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QMutex, QTranslator, QLocale, QLibraryInfo
+from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QMutex, QTranslator, QLocale, QLibraryInfo, QEvent
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from archivviewer.forms import ArchivviewerUi
+from .configreader import ConfigReader
 
 exportThread = None
 
@@ -51,8 +52,28 @@ def displayErrorMessage(msg):
 class ArchivViewer(QMainWindow, ArchivviewerUi):
     def __init__(self, parent = None):
         super(ArchivViewer, self).__init__(parent)
+        self._config = ConfigReader.get_instance()
         self.setupUi(self)
         self.setWindowTitle("Archiv Viewer")
+        self.actionStayOnTop.changed.connect(self.stayOnTopChanged)
+        
+        
+    def stayOnTopChanged(self):
+        ontop = self.actionStayOnTop.isChecked()
+        self._config.setValue('stayontop', ontop)
+        if ontop:
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        else:
+            self.setWindowFlags(self.windowFlags() & (~Qt.WindowStaysOnTopHint))
+        self.show()
+        
+    def event(self, evt):
+        ontop = self._config.getValue('stayontop')
+        if evt.type() == QEvent.WindowActivate or evt.type() == QEvent.HoverEnter:
+            self.setWindowOpacity(1.0)
+        elif (evt.type() == QEvent.WindowDeactivate or evt.type() == QEvent.HoverLeave) and not self.isActiveWindow() and ontop:
+            self.setWindowOpacity(0.6)
+        return QMainWindow.event(self, evt)
 
 class FileChangeHandler(FileSystemEventHandler):
     def __init__(self, gdtfile, model):
@@ -122,6 +143,7 @@ class ArchivTableModel(QAbstractTableModel):
         with self.lock("setActivePatient"):        
             self._infos = infos
             self._av.patientName.setText('{name}, {surname} [{id}]'.format(**infos))
+            self._av.setWindowTitle('Archiv Viewer - {name}, {surname} [{id}]'.format(**infos))
             self.reloadData(int(infos["id"]))
     
     def data(self, index, role):
@@ -325,24 +347,16 @@ class ArchivTableModel(QAbstractTableModel):
                     filelist = range(len(self._files))
             else:
                 return
-                
-        dirconfpath = os.sep.join([os.environ["AppData"], "ArchivViewer", "config.json"])
-        outfiledir = str(Path.home())
-        try:
-            with open(dirconfpath, "r") as f:
-                conf = json.load(f)
-                outfiledir = conf["outfiledir"]
-        except:
-            pass
-            
+        
+        conf = ConfigReader.get_instance()
+        outfiledir = conf.getValue('outfiledir')
+                    
         outfilename = os.sep.join([outfiledir, 'Patientenakte_%d_%s_%s_%s-%s.pdf' % (int(self._infos["id"]), 
             self._infos["name"], self._infos["surname"], self._infos["birthdate"], datetime.now().strftime('%Y%m%d%H%M%S'))])
         destination, _ = QFileDialog.getSaveFileName(self._av, "Auswahl als PDF exportieren", outfilename, "PDF-Datei (*.pdf)")
         if len(destination) > 0:
             try:
-                os.makedirs(os.path.dirname(dirconfpath), exist_ok = True)
-                with open(dirconfpath, "w") as f:
-                    json.dump({ 'outfiledir': os.path.dirname(destination) }, f, indent = 1)
+                conf.setValue('outfiledir', os.path.dirname(destination))
             except:
                 pass
                 
@@ -443,7 +457,7 @@ def main():
     defaultDbPassword = "masterkey" 
     defaultLibrePath = "C:\Program Files\LibreOffice\program\soffice.exe"
 
-    for cfg in [conffile, conffile2]:
+    for cfg in [conffile2]:
         try:
             print("Attempting config %s" % (cfg))
             with open(cfg, 'r') as f:
@@ -454,6 +468,8 @@ def main():
                     defaultDbPassword = conf["dbpassword"]
                 if "libreoffice" in conf:
                     defaultLibrePath = conf["libreoffice"]
+                if "clientlib" in conf:
+                    defaultClientLib = conf["clientlib"]
             break
         except Exception as e:
             print("Failed to load config: %s." % (e))
@@ -466,7 +482,7 @@ def main():
             user=defaultDbUser, password=defaultDbPassword, fb_library_name=defaultClientLib)
         print("Connection established.")
     except Exception as e:
-        displayErrorMessage('Fehler beim Verbinden mit der Datenbank: {}'.format(e))
+        displayErrorMessage('Fehler beim Verbinden mit der Datenbank: {}. Pfad zur DLL-Datei: {}'.format(e, defaultClientLib))
         sys.exit()
         
     try:
@@ -486,10 +502,14 @@ def main():
         sys.exit()
         
     with tempdir() as myTemp:
+        config = ConfigReader.get_instance()
         av = ArchivViewer()
         tm = ArchivTableModel(con, myTemp, defaultLibrePath, av, app)
         av.documentView.doubleClicked.connect(lambda: tableDoubleClicked(av.documentView, tm))
         av.documentView.setModel(tm)
+        av.actionStayOnTop.setChecked(config.getValue('stayontop', False))
+        if config.getValue('stayontop', False):
+            av.setWindowFlags(av.windowFlags() | Qt.WindowStaysOnTopHint)
         av.exportPdf.clicked.connect(lambda: exportSelectionAsPdf(av.documentView, tm))
         event_handler = FileChangeHandler(gdtfile, tm)
         av.action_quit.triggered.connect(lambda: app.quit())
