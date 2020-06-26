@@ -9,7 +9,7 @@ from lhafile import LhaFile
 from PyPDF2 import PdfFileMerger
 import img2pdf
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog
-from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QMutex, QTranslator, QLocale, QLibraryInfo, QEvent
+from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QMutex, QTranslator, QLocale, QLibraryInfo, QEvent, QSettings
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
@@ -55,6 +55,7 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         self._config = ConfigReader.get_instance()
         self.setupUi(self)
         self.setWindowTitle("Archiv Viewer")
+        self.readSettings()
         self.actionStayOnTop.changed.connect(self.stayOnTopChanged)
         
         
@@ -74,6 +75,17 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         elif (evt.type() == QEvent.WindowDeactivate or evt.type() == QEvent.HoverLeave) and not self.isActiveWindow() and ontop:
             self.setWindowOpacity(0.6)
         return QMainWindow.event(self, evt)
+    
+    def closeEvent(self, evt):
+        settings = QSettings("cortex", "ArchivViewer")
+        settings.setValue("geometry", self.saveGeometry())
+        settings.setValue("windowState", self.saveState())
+        QMainWindow.closeEvent(self, evt)
+    
+    def readSettings(self):
+        settings = QSettings("cortex", "ArchivViewer")
+        self.restoreGeometry(settings.value("geometry").toByteArray())
+        self.restoreState(settings.value("windowState").toByteArray())
 
 class FileChangeHandler(FileSystemEventHandler):
     def __init__(self, gdtfile, model):
@@ -352,7 +364,7 @@ class ArchivTableModel(QAbstractTableModel):
                 return
         
         conf = ConfigReader.get_instance()
-        outfiledir = conf.getValue('outfiledir')
+        outfiledir = conf.getValue('outfiledir', '')
                     
         outfilename = os.sep.join([outfiledir, 'Patientenakte_%d_%s_%s_%s-%s.pdf' % (int(self._infos["id"]), 
             self._infos["name"], self._infos["surname"], self._infos["birthdate"], datetime.now().strftime('%Y%m%d%H%M%S'))])

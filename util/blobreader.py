@@ -7,8 +7,6 @@ class MOMask:
     DAYPROTOCOL = 0b00000100
     AUTOSEND = 0b00000001
     EMERGENCYSEND = 0b00000010
-    EXTERNALFILE = 0b00000100
-    ARCHIVE = 0b00001010
 
 def parse_blob(blob):
     categories = []
