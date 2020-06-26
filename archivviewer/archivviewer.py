@@ -337,7 +337,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.exportProgress.setEnabled(False)
         self._av.exportPdf.setEnabled(True)
         self._av.documentView.setEnabled(True)
-        QMessageBox.information(None, "Export abgeschlossen", "%d Dokumente wurden nach '%s' exportiert" % (counter, destination))
+        QMessageBox.information(self._av, "Export abgeschlossen", "%d Dokumente wurden nach '%s' exportiert" % (counter, destination))
     
     def handleError(self, msg):
         displayErrorMessage(msg)
@@ -481,7 +481,7 @@ def main():
     print("DB Path is %s on %s" % (defaultDb, defaultHost))
     try:
         print("Connecting db")
-        con = fdb.connect(host=defaultHost, database=defaultDb, 
+        con = fdb.connect(host=defaultHost, database=defaultDb, port=2013,
             user=defaultDbUser, password=defaultDbPassword, fb_library_name=defaultClientLib)
         print("Connection established.")
     except Exception as e:
