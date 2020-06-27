@@ -19,6 +19,7 @@ from functools import reduce
 from archivviewer.forms import ArchivviewerUi
 from .configreader import ConfigReader
 from .CategoryModel import CategoryModel
+from .FilesTableDelegate import FilesTableDelegate
 
 exportThread = None
 
@@ -65,6 +66,8 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         self.setupUi(self)
         self.setWindowTitle("Archiv Viewer")
         self.readSettings()
+        self.delegate = FilesTableDelegate()
+        self.documentView.setItemDelegate(self.delegate)
         self.actionStayOnTop.changed.connect(self.stayOnTopChanged)
         
         
@@ -126,7 +129,7 @@ class FileChangeHandler(FileSystemEventHandler):
 
 class PdfExporter(QObject):
     progress = pyqtSignal(int)
-    completed = pyqtSignal(int, str)
+    completed = pyqtSignal(int, int, str)
     error = pyqtSignal(str)
     kill = pyqtSignal()
 
@@ -156,6 +159,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._av = mainwindow
         self._application = application
         self._infos = {}
+        self._exportErrors = []
         self._categoryModel = categoryModel
         self._categoryFilter = set()
         self._av.categoryList.selectionModel().selectionChanged.connect(self.categorySelectionChanged)
@@ -339,10 +343,13 @@ class ArchivTableModel(QAbstractTableModel):
                     
             lf = LhaFile(ios)
             
+            appended = False
+            
             for name in lf.namelist():
                 content = lf.read(name)
                 if content[0:5] == b'%PDF-':                  
                     merger.append(io.BytesIO(content))
+                    appended = True
                 elif content[0:5] == b'{\\rtf':
                     with tempdir() as tmpdir:
                         tmpfile = tmpdir + os.sep + "temp.rtf"
@@ -354,35 +361,59 @@ class ArchivTableModel(QAbstractTableModel):
                             try:
                                 with open(pdffile, "rb") as f:
                                     merger.append(io.BytesIO(f.read()))
+                                    
+                                appended = True
                             except:
+                                err = "%s: Fehler beim Öffnen der konvertierten PDF-Datei '%s'" % (file['beschreibung'], pdffile)
                                 if errorSlot:
-                                    errorSlot.emit("Fehler beim Öffnen der konvertierten PDF-Datei '%s'" % (pdffile))
+                                    errorSlot.emit(err)
                                 else:
-                                    displayErrorMessage("Fehler beim Öffnen der konvertierten PDF-Datei '%s'" % (pdffile))
+                                    displayErrorMessage(err)
                         else:
+                            err = "%s: Fehler beim Ausführen des Kommandos: '%s'" % (file['beschreibung'], command)
                             if errorSlot:
-                                errorSlot.emit("Fehler beim Ausführen des Kommandos: '%s'" % (command))
+                                errorSlot.emit(err)
                             else:
-                                displayErrorMessage("Fehler beim Ausführen des Kommandos: '%s'" % (command))
+                                displayErrorMessage(err)
                 elif name == "message.eml":
                     # eArztbrief
                     eml = email.message_from_bytes(content)
-                    
+                                        
                     for part in eml.get_payload():
                         fnam = part.get_filename()
                         partcont = part.get_payload(decode=True)
                         if partcont[0:5] == b'%PDF-':
-                            print("eArztbrief: hänge Anhang '%s' an den Export an" % (fnam))
                             merger.append(io.BytesIO(partcont))
+                            appended = True
                         else:
-                            print("eArztbrief: nicht unterstütztes Anhangsformat in Anhang '%s'" % (fnam))
+                            err = "%s: eArztbrief: nicht unterstütztes Anhangsformat in Anhang '%s'" % (file["beschreibung"], fnam)
+                            if errorSlot:
+                                errorSlot.emit(err)
+                            else:
+                                displayErrorMessage(err)
                 else:
                     try:
                         merger.append(io.BytesIO(img2pdf.convert(content)))
+                        appended = True
                     except Exception as e:
-                        print("Dateiinhalt '%s' ist kein unterstützter Dateityp -> wird nicht an PDF angehängt (%s)" % (name, e))
+                        err = "%s: Dateiinhalt '%s' ist kein unterstützter Dateityp -> wird nicht an PDF angehängt (%s)" % (file["beschreibung"], name, e)
+                        if errorSlot:
+                            errorSlot.emit(err)
+                        else:
+                            displayErrorMessage(err)
             
-            merger.write(filename)
+            if appended:
+                try:
+                    merger.write(filename)
+                except Exception as e:
+                    err = "{}: Fehler beim Schreiben der Ausgabedatei '{}': {}".format(file["beschreibung"], filename, e)
+                    if errorSlot:
+                        errorSlot.emit(err)
+                    else:
+                        displayErrorMessage(err)
+            else:
+                filename = None
+                
             merger.close()
             
             try:
@@ -396,7 +427,8 @@ class ArchivTableModel(QAbstractTableModel):
         self._application.setOverrideCursor(Qt.WaitCursor)
         filename = self.generateFile(rowIndex)
         self._application.restoreOverrideCursor()
-        subprocess.run(['start', filename], shell=True)
+        if filename is not None:
+            subprocess.run(['start', filename], shell=True)
     
     def exportAsPdfThread(self, thread, filelist, destination):
         self._application.setOverrideCursor(Qt.WaitCursor)
@@ -405,24 +437,29 @@ class ArchivTableModel(QAbstractTableModel):
         try:
             merger = PdfFileMerger()
             counter = 0
+            failed = 0
             filelist = sorted(filelist)
             for file in filelist:
                 counter += 1
                 thread.progress.emit(counter)
                 
                 filename = self.generateFile(file, errorSlot = thread.error)
-                bmtext = " ".join([files[file]["beschreibung"], files[file]["datum"].strftime('%d.%m.%Y %H:%M')])
-                merger.append(filename, bookmark=bmtext)
+                if filename is None:
+                    failed += 1
+                else:
+                    bmtext = " ".join([files[file]["beschreibung"], files[file]["datum"].strftime('%d.%m.%Y %H:%M')])
+                    merger.append(filename, bookmark=bmtext)
             
-            
-            merger.write(destination)
+            if failed < counter:
+                merger.write(destination)
             merger.close()
-        except IOError as e:    
+        except IOError as e:
+            failed = counter
             thread.error.emit("Fehler beim Schreiben der PDF-Datei: {}".format(e))
             
         thread.progress.emit(0)
         self._application.restoreOverrideCursor()
-        thread.completed.emit(counter, destination)
+        thread.completed.emit(counter, failed, destination)
         
         return counter
     
@@ -431,7 +468,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.exportProgress.setValue(value)
         self._av.taskbar_progress.setValue(value)
         
-    def exportCompleted(self, counter, destination):
+    def exportCompleted(self, counter, failed, destination):
         self._av.exportProgress.setFormat('')
         self._av.exportProgress.setEnabled(False)
         self._av.exportPdf.setEnabled(len(self._files)>0)
@@ -439,10 +476,17 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.categoryList.setEnabled(True)
         self._av.filterDescription.setEnabled(True)
         self._av.taskbar_progress.hide()
-        QMessageBox.information(self._av, "Export abgeschlossen", "%d Dokumente wurden nach '%s' exportiert" % (counter, destination))
+        if failed == 0:
+            QMessageBox.information(self._av, "Export abgeschlossen", "%d Dokumente wurden nach '%s' exportiert" % (counter, destination))
+        elif failed < counter:
+            message = '\n'.join([ "%d von %d Dokumenten wurden nach '%s' exportiert\n\nWährend des Exports sind Fehler aufgetreten:\n" % (counter-failed, counter, destination), *self._exportErrors ])
+            QMessageBox.warning(self._av, "Export abgeschlossen", message)
+        else:
+            message = '\n'.join([ "Es konnten keine Dokumente exportiert werden:", *self._exportErrors ])
+            QMessageBox.critical(self._av, "Export fehlgeschlagen", message)
     
     def handleError(self, msg):
-        displayErrorMessage(msg)
+        self._exportErrors.append(msg)
     
     def exportAsPdf(self, filelist):   
         if len(filelist) == 0:
@@ -464,7 +508,7 @@ class ArchivTableModel(QAbstractTableModel):
                 conf.setValue('outfiledir', os.path.dirname(destination))
             except:
                 pass
-                
+            self._exportErrors = []    
             self._av.exportPdf.setEnabled(False)
             self._av.documentView.setEnabled(False)
             self._av.categoryList.setEnabled(False)
@@ -546,7 +590,11 @@ def main():
     
     try:
         mokey = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 'SOFTWARE\\WOW6432Node\\INDAMED')
-        defaultClientLib = os.sep.join([winreg.QueryValueEx(mokey, 'DataPath')[0], '..', 'Firebird', 'bin', 'fbclient.dll'])
+        is64_bits = sys.maxsize > 2**32
+        if is64_bits:
+            defaultClientLib = os.sep.join([winreg.QueryValueEx(mokey, 'DataPath')[0], '..', 'Firebird', 'bin', 'fbclient.dll'])
+        else:
+            defaultClientLib = os.sep.join([winreg.QueryValueEx(mokey, 'LocalPath')[0], 'gds32.dll'])
     except OSError as e:
         displayErrorMessage("Failed to open Medical Office registry key: {}".format(e))
         sys.exit()

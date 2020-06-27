@@ -292,7 +292,7 @@ class CategoryModel(QAbstractListModel):
         if role == Qt.DisplayRole:
             with self.lock("data / DisplayRole"):
                 return '{name} ({krankenblatt})'.format(**list(self._archivecategories.values())[index.row()])
-        elif role == Qt.BackgroundRole:
+        elif role == Qt.DecorationRole:
             with self.lock("data / BackgroundRole"):
                 try:
                     id = list(self._archivecategories.keys())[index.row()]
@@ -301,6 +301,8 @@ class CategoryModel(QAbstractListModel):
                     if red is not None:
                         green = fullcat['green']
                         blue = fullcat['blue']
-                        return QBrush(QColor.fromRgb(red, green, blue))
+                        return QColor.fromRgb(red, green, blue)
+                    else:
+                        return QColor.fromRgb(255, 255, 255, 0)
                 except KeyError:
-                    pass
+                    return QColor.fromRgb(255, 255, 255, 0)

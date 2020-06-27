@@ -184,7 +184,7 @@
           <bool>false</bool>
          </property>
          <property name="text">
-          <string>PDF exportieren...</string>
+          <string>&amp;PDF exportieren...</string>
          </property>
         </widget>
        </item>
