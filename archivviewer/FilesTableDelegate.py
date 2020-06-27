@@ -12,11 +12,11 @@ class FilesTableDelegate(QtWidgets.QStyledItemDelegate):
         QtWidgets.QStyledItemDelegate.initStyleOption(self, option, index)
         
         if not myPainter and index.column() == 2:
-            option.backgroundBrush = QtGui.QBrush(QtCore.Qt.NoBrush)
             normalText = option.palette.brush(QPalette.ColorGroup.Normal, QPalette.ColorRole.Text)
             option.palette.setBrush(QPalette.ColorGroup.Normal, QPalette.ColorRole.Highlight, QBrush(QtCore.Qt.NoBrush))
-            if option.backgroundBrush is not None and option.backgroundBrush.style() != QtCore.Qt.NoBrush:
+            if option.backgroundBrush.style() != QtCore.Qt.NoBrush:
                 option.palette.setBrush(QPalette.ColorGroup.Normal, QPalette.ColorRole.HighlightedText, normalText)
+            option.backgroundBrush = QtGui.QBrush(QtCore.Qt.NoBrush)
             
     
     def paint(self, painter, option, index):

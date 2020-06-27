@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="128"
+   height="128"
+   viewBox="0 0 33.866667 33.866667"
+   version="1.1"
+   id="svg8"
+   sodipodi:docname="icon.svg"
+   inkscape:version="0.92.3 (2405546, 2018-03-11)"
+   inkscape:export-filename="/home/jupi/workspace/archivviewer/resource/icon256.png"
+   inkscape:export-xdpi="192"
+   inkscape:export-ydpi="192">
+  <defs
+     id="defs2" />
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="7"
+     inkscape:cx="64.428967"
+     inkscape:cy="70.021867"
+     inkscape:document-units="mm"
+     inkscape:current-layer="layer1"
+     showgrid="false"
+     units="px"
+     inkscape:window-width="2556"
+     inkscape:window-height="1420"
+     inkscape:window-x="0"
+     inkscape:window-y="1170"
+     inkscape:window-maximized="0" />
+  <metadata
+     id="metadata5">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Ebene 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(0,-263.13331)">
+    <g
+       id="icon128"
+       transform="matrix(1.0583333,0,0,1.0583333,-0.00650183,-17.280017)"
+       inkscape:label="#g835">
+      <g
+         id="g828">
+        <path
+           style="fill:none;fill-rule:evenodd;stroke:#804000;stroke-width:1.46487832;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+           d="M 0.11145988,283.57266 H 7.1797331 l 0.2464213,0.91477 5.4068606,-20.07104 0.772421,31.68346 2.184738,-12.20762 h 2.891566 c 4.390896,-4.5379 5.761713,-2.55655 8.353413,0 h 5.076307"
+           id="path825"
+           inkscape:connector-curvature="0"
+           sodipodi:nodetypes="ccccccccc" />
+      </g>
+      <g
+         transform="matrix(1.2050707,0,0,1.2050707,-4.2944036,-57.27273)"
+         id="g825">
+        <path
+           style="opacity:1;fill:#7eafe1;fill-opacity:1;fill-rule:nonzero;stroke:#000000;stroke-width:0.50658697;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+           d="m 18.784171,278.34509 9.014953,12.23336 c 0.166473,0.2259 0.11893,0.54201 -0.10697,0.70849 l -2.315105,1.70635 c -0.225899,0.16648 -0.542011,0.11842 -0.708483,-0.10748 l -8.953458,-12.15017 a 7.0699296,7.0699296 0 0 0 3.069063,-2.39055 z"
+           id="rect829"
+           inkscape:connector-curvature="0" />
+        <circle
+           style="opacity:1;fill:#eeeeee;fill-opacity:0.50196078;fill-rule:nonzero;stroke:#000000;stroke-width:0.58923441;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+           id="path827"
+           cx="-13.081349"
+           cy="274.15396"
+           r="7.0699296"
+           transform="scale(-1,1)" />
+      </g>
+    </g>
+    <use
+       x="0"
+       y="0"
+       xlink:href="#icon128"
+       id="use841"
+       transform="matrix(0.50000001,0,0,0.50000001,-0.74234674,200.78621)"
+       width="100%"
+       height="100%" />
+    <use
+       x="0"
+       y="0"
+       xlink:href="#use841"
+       id="use843"
+       transform="matrix(0.5,0,0,0.5,31.380225,174.64984)"
+       width="100%"
+       height="100%" />
+    <use
+       x="0"
+       y="0"
+       xlink:href="#use843"
+       id="icon16"
+       transform="matrix(0.5,0,0,0.5,33.874213,174.7496)"
+       width="100%"
+       height="100%"
+       inkscape:label="#use845" />
+    <use
+       x="0"
+       y="0"
+       xlink:href="#icon128"
+       id="icon256"
+       transform="matrix(2.0000001,0,0,2.0000001,60.34282,-294.83226)"
+       width="100%"
+       height="100%"
+       inkscape:label="#use847" />
+  </g>
+</svg>
