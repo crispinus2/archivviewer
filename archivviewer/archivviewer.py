@@ -261,7 +261,6 @@ class ArchivTableModel(QAbstractTableModel):
             col = index.column()
             if col == 2:
                 try:
-                    #print("Looking up for file '{}'".format(file["beschreibung"]))
                     colors = self._categoryModel.colorById(file["category"]) 
                     if colors['red'] is not None:
                         return QBrush(QColor.fromRgb(colors['red'], colors['green'], colors['blue']))
@@ -275,6 +274,9 @@ class ArchivTableModel(QAbstractTableModel):
                 return self._categoryModel.categoryById(file["category"])['name']
             elif col == 3:
                 return file["beschreibung"]
+        elif role == Qt.TextAlignmentRole:
+            if index.column() == 2:
+                return Qt.AlignCenter
             
                 
     
