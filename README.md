@@ -37,7 +37,7 @@ so muss der Pfad wie unter [Konfiguration](#Konfiguration) beschrieben konfiguri
 
 Zu jedem Release werden auch fertige Binärpakete zur direkten Verwendung angeboten. Diese enthalten neben Archiv Viewer selbst auch eine vollständige Python-Umgebung, sodass
 es nur notwendig ist, die heruntergeladene Datei sich selbst entpacken zu lassen. Im entpackten Ordner findet sich dann unter dem Dateinamen `ArchivViewer.exe` direkt die lauffähige
-Software und kann per Doppelklick gestartet werden, sobald Medical Office entsprechent vorbereitet wurde.
+Software und kann per Doppelklick gestartet werden, sobald Medical Office entsprechend vorbereitet wurde.
 
 Eine gesonderte Konfiguration von Archiv Viewer selbst ist unter normalen Umständen nicht erforderlich.
 
