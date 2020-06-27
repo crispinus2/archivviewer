@@ -6,7 +6,7 @@ block_cipher = None
 a = Analysis(['ArchivViewer.py'],
              pathex=['E:\\workspace\\archivviewer'],
              binaries=[],
-             datas=[],
+             datas=[('archivviewer/icon128.png', 'archivviewer/')],
              hiddenimports=[],
              hookspath=[],
              runtime_hooks=[],
@@ -26,7 +26,7 @@ exe = EXE(pyz,
           bootloader_ignore_signals=False,
           strip=False,
           upx=True,
-          console=True , icon='resource\\icon.ico')
+          console=False )
 coll = COLLECT(exe,
                a.binaries,
                a.zipfiles,

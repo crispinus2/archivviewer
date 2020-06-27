@@ -10,7 +10,7 @@ from PyPDF2 import PdfFileMerger
 import img2pdf
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog
 from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QMutex, QTranslator, QLocale, QLibraryInfo, QEvent, QSettings
-from PyQt5.QtGui import QColor, QBrush
+from PyQt5.QtGui import QColor, QBrush, QIcon
 from PyQt5.QtWinExtras import QWinTaskbarProgress, QWinTaskbarButton
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -64,6 +64,9 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         self.taskbar_button = None
         self.taskbar_progress = None
         self.setupUi(self)
+        iconpath = os.sep.join([os.path.dirname(os.path.realpath(__file__)), 'icon128.png'])
+        print("Icon path: {}".format(iconpath))
+        self.setWindowIcon(QIcon(iconpath))
         self.setWindowTitle("Archiv Viewer")
         self.readSettings()
         self.delegate = FilesTableDelegate()
@@ -680,7 +683,9 @@ def main():
         av.action_about.triggered.connect(lambda: QMessageBox.about(av, "Über Archiv Viewer", 
             """<p><b>Archiv Viewer</b> ist eine zur Verwendung mit Medical Office der Fa. Indamed entwickelte
              Software, die synchron zur Medical Office-Anwendung die gespeicherten Dokumente eines Patienten im Archiv
-             anzeigen kann. Zusätzlich können ausgewählte Dokumente auch als PDF-Datei exportiert werden.</p><p>(c) 2020 Julian Hartig - Lizensiert unter den Bedingungen der GPLv3</p>"""))
+             anzeigen kann. Zusätzlich können ausgewählte Dokumente auch als PDF-Datei exportiert werden.</p>
+             <p><a href=\"https://github.com/crispinus2/archivviewer\">https://github.com/crispinus2/archivviewer</a></p>
+             <p>(c) 2020 Julian Hartig - Lizensiert unter den Bedingungen der GPLv3</p>"""))
         
         observer = Observer()
         observer.schedule(event_handler, path=os.path.dirname(gdtfile), recursive=False)
