@@ -5,6 +5,7 @@ from PyQt5.QtCore import QAbstractListModel, QMutex, Qt
 from PyQt5.QtGui import QBrush, QColor
 from contextlib import contextmanager
 from collections import OrderedDict
+from itertools import islice
 
 class MOMask:
     NOTUSECATEGORY = 0b00001000
@@ -53,10 +54,10 @@ def parse_briefe_blob(blob):
     while offset < len(blob):
         entryLength = int.from_bytes(blob[offset:offset+2], 'little')
         offset += 2
-        result = parseBlobEntry(blob[offset:offset+entryLength])
+        result = parse_briefe_entry(blob[offset:offset+entryLength])
         entries.append(result)
         offset += entryLength
-        
+    
     return entries
 
 def parse_briefe_entry(blob):
@@ -68,7 +69,7 @@ def parse_briefe_entry(blob):
     name = stream.read(namelen)[:-1].decode('cp1252')
     keycodelen = int.from_bytes(stream.read(2), 'little')
     if keycodelen == 0:
-        stream.read(5)
+        stream.read(4)
         keycodelen = int.from_bytes(stream.read(2), 'little')
         keycode = stream.read(keycodelen)[:-1].decode('cp1252')
         catidlen = int.from_bytes(stream.read(2), 'little')
@@ -86,7 +87,6 @@ def parse_memo_blob(blob):
     categories = {}
     offset = 0
     totallen = int.from_bytes(blob[offset:offset+2], 'little')
-    print("Total length: {}".format(totallen))
     offset += 2
     b1len = int.from_bytes(blob[offset:offset+2], 'little')
     offset += 2 + b1len
@@ -103,12 +103,9 @@ def parse_memo_blob(blob):
     categoriesLenRelative = int.from_bytes(blob[offset:offset+2], 'little')
     offset += 2
     categoriesLastOffset = categoriesLenRelative + offset
-    print("Categories Last Offset: {}/{}".format(categoriesLenRelative, categoriesLastOffset))
     catCountLen = int.from_bytes(blob[offset:offset+2], 'little')
-    print ("Length of Cat Count: {}".format(catCountLen))
     offset += 2
     catCount = int.from_bytes(blob[offset:offset+catCountLen], 'little')
-    print("Number of Categories: {}".format(catCount))
     offset += catCountLen
     while offset < categoriesLastOffset:
         entryLen = int.from_bytes(blob[offset:offset+2], 'little')
@@ -116,7 +113,8 @@ def parse_memo_blob(blob):
         category = parse_memo_blob_category(blob[offset:offset+entryLen])
         offset += entryLen
         #if category['catType'] == "archive":
-        categories[category["id"]] = category
+        if category['useCategory']:
+            categories[category["id"]] = category
         
     return categories
 
@@ -227,58 +225,81 @@ class CategoryModel(QAbstractListModel):
         self.reloadCategories()
 
     @contextmanager
-    def lock(self):
-        self.mutex.lock()
-        yield
-        self.mutex.unlock()
+    def lock(self, msg = None):
+        if msg is not None:
+            #print("Lock request: {}".format(msg))
+            pass
+        self._mutex.lock()
+        if msg is not None:
+            #print("Lock acquired: {}".format(msg))
+            pass
+        try:
+            yield
+        except:
+            raise
+        finally:
+            self._mutex.unlock()
+            if msg is not None:
+                #print("Lock released: {}".format(msg))
+                pass
         
     def reloadCategories(self):
         cur = self._con.cursor()
         cur.execute("SELECT s.FMEMO, s.FBRIEFKATEGORIELISTE, s.FKATEGORIELISTE, s.FABLAGELISTE FROM MOSYSTEM s")
         for blobs in cur:
             self.beginResetModel()
-            with self.lock():
-                self._fullcategories = parse_memo_blob(blob[0])
-                briefcategories = parse_briefe_blob(blob[1])
+            with self.lock("reloadCategories"):
+                self._fullcategories = parse_memo_blob(blobs[0])
+                briefcategories = parse_briefe_blob(blobs[1])
                 archivecategories = parseBlobs(blobs[2:])
                 
                 for bc in briefcategories:
                     if bc['categoryId'] is not None:
                         archivecategories[bc['categoryId']] = bc['name']
                     else:
-                        for fc in self._fullcategories:
-                            if fc['keycode'].lower() == bc['keycode'].lower():
+                        print("Trying to find match for keycode {}".format(bc['keycode']))
+                        for fc in self._fullcategories.values():
+                            if fc['krankenblatt'].lower() == bc['keycode'].lower():
+                                print("Match for keycode {}: id {} name {}".format(fc['krankenblatt'], fc['id'], bc['name']))
                                 archivecategories[fc['id']] = bc['name']
+                                break
+                print(archivecategories)
+                archivecategories = { k: { 'name': v, 'krankenblatt': self._fullcategories[k]['krankenblatt'] } if k in self._fullcategories else { 'name': v, 'krankenblatt': v } 
+                                     for (k, v) in archivecategories.items() }
                 
-                self._archivecategories = OrderedDict(sorted(archivecategories.items(), key=lambda item: item[1]))
+                self._archivecategories = OrderedDict(sorted(archivecategories.items(), key=lambda item: item[1]['name']))
+                
             self.endResetModel()
             break
         del cur
         
-    def rowCount(self):
-        with self.lock():
+    def rowCount(self, _):
+        with self.lock("rowCount"):
             return len(self._archivecategories)
     
-    def nameById(self, id):
-        with self.lock():
+    def categoryById(self, id):
+        with self.lock("nameById"):
             return self._archivecategories[id]
     
     def idAtRow(self, row):
-        with self.lock():
-            return self._archivecategories.keys()[row]
+        with self.lock("idAtRow"):
+            return list(self._archivecategories.keys())[row]
     
     def colorById(self, id):
-        fullcat = self._fullcategories[id]
+        with self.lock("colorById"):
+            fullcat = self._fullcategories[id]
+            
         return { 'red': fullcat['red'], 'green': fullcat['green'], 'blue': fullcat['blue'] }
     
     def data(self, index, role):
         if role == Qt.DisplayRole:
-            with self.lock():
-                return self._archivecategories.values()[index]['name']
+            with self.lock("data / DisplayRole"):
+                return '{name} ({krankenblatt})'.format(**list(self._archivecategories.values())[index.row()])
         elif role == Qt.BackgroundRole:
-            with self.lock():
+            with self.lock("data / BackgroundRole"):
                 try:
-                    fullcat = self._fullcategories[self._archivecategories.values()[index]['categoryId']]
+                    id = list(self._archivecategories.keys())[index.row()]
+                    fullcat = self._fullcategories[id]
                     red = fullcat['red']
                     if red is not None:
                         green = fullcat['green']

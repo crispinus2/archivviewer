@@ -11,14 +11,19 @@ import img2pdf
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog
 from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QMutex, QTranslator, QLocale, QLibraryInfo, QEvent, QSettings
 from PyQt5.QtGui import QColor, QBrush
+from PyQt5.QtWinExtras import QWinTaskbarProgress, QWinTaskbarButton
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from functools import reduce
 
 from archivviewer.forms import ArchivviewerUi
 from .configreader import ConfigReader
 from .CategoryModel import CategoryModel
 
 exportThread = None
+
+def ilen(iterable):
+    return reduce(lambda sum, element: sum + 1, iterable, 0)
 
 def parseBlobs(blobs):
     entries = {}
@@ -55,6 +60,8 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
     def __init__(self, parent = None):
         super(ArchivViewer, self).__init__(parent)
         self._config = ConfigReader.get_instance()
+        self.taskbar_button = None
+        self.taskbar_progress = None
         self.setupUi(self)
         self.setWindowTitle("Archiv Viewer")
         self.readSettings()
@@ -78,18 +85,27 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
             self.setWindowOpacity(0.6)
         return QMainWindow.event(self, evt)
     
+    def showEvent(self, evt):
+        self.taskbar_button = QWinTaskbarButton()
+        self.taskbar_progress = self.taskbar_button.progress()
+        self.taskbar_button.setWindow(self.windowHandle())
+    
     def closeEvent(self, evt):
-        settings = QSettings("cortex", "ArchivViewer")
+        settings = QSettings(QSettings.UserScope, "cortex", "ArchivViewer")
         settings.setValue("geometry", self.saveGeometry())
         settings.setValue("windowState", self.saveState())
         settings.setValue("splitter", self.splitter.saveState())
+        settings.sync()
         QMainWindow.closeEvent(self, evt)
     
     def readSettings(self):
-        settings = QSettings("cortex", "ArchivViewer")
-        self.restoreGeometry(settings.value("geometry").toByteArray())
-        self.restoreState(settings.value("windowState").toByteArray())
-        self.splitter.restoreState(settings.value("splitter").toByteArray())
+        settings = QSettings(QSettings.UserScope, "cortex", "ArchivViewer")
+        try:
+            self.restoreGeometry(settings.value("geometry"))
+            self.restoreState(settings.value("windowState"))
+            self.splitter.restoreState(settings.value("splitter"))
+        except Exception as e:
+            pass
         
 
 class FileChangeHandler(FileSystemEventHandler):
@@ -127,12 +143,12 @@ class PdfExporter(QObject):
 
 class ArchivTableModel(QAbstractTableModel):    
     _startDate = datetime(1890, 1, 1)
+    _dataReloaded = pyqtSignal()
 
     def __init__(self, con, tmpdir, librepath, mainwindow, application, categoryModel):
         super(ArchivTableModel, self).__init__()
         self._unfilteredFiles = []
         self._files = []
-        self._dataReloaded = pyqtSignal()
         self._con = con
         self._tmpdir = tmpdir
         self._librepath = librepath
@@ -143,7 +159,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._categoryModel = categoryModel
         self._categoryFilter = set()
         self._av.categoryList.selectionModel().selectionChanged.connect(self.categorySelectionChanged)
-        self._av.filterDescription.textChanged.connect(self.filterTextChanged)
+        self._av.filterDescription.textEdited.connect(self.filterTextChanged)
         self._dataReloaded.connect(self._av.filterDescription.clear)
         self.exportThread = None
         self.mutex = QMutex(mode=QMutex.Recursive)
@@ -156,21 +172,29 @@ class ArchivTableModel(QAbstractTableModel):
     @contextmanager
     def lock(self, msg=None):
         if msg:
+            #print("Entering {}".format(msg))
             pass
         self.mutex.lock()
-        yield
-        if msg:
-            pass
-        self.mutex.unlock()
+        try:
+            yield
+        except:
+            raise
+        finally:
+            if msg:
+                #print("Leaving {}".format(msg))
+                pass
+            self.mutex.unlock()
     
     def categorySelectionChanged(self, selected, deselected):
         for idx in selected.indexes():
             id = self._categoryModel.idAtRow(idx.row())
-            with self.lock():
+            print("Adding cat id {} to selection".format(id))
+            with self.lock("categorySelectionChanged: add"):
                 self._categoryFilter.add(id)
         for idx in deselected.indexes():
             id = self._categoryModel.idAtRow(idx.row())
-            with self.lock():
+            print("Removing cat id {} from selection".format(id))
+            with self.lock("categorySelectionChanged: add"):
                 self._categoryFilter.discard(id)
                 
         self.applyFilters()
@@ -179,59 +203,81 @@ class ArchivTableModel(QAbstractTableModel):
         self.applyFilters()
     
     def applyFilters(self):
-        with self.lock():
+        self.beginResetModel()
+        with self.lock("_applyFilters"):
             self._applyFilters()
+        self.endResetModel()
                 
     def _applyFilters(self):
-        self.beginResetModel()
-        self._files = filter(lambda x: 
+        
+        self._files = list(filter(lambda x: 
                                  (len(self._categoryFilter) == 0 or x['category'] in self._categoryFilter)
-                                 and (len(self._av.filterDescription.text()) == 0 or self._av.filterDescription.text().lower() in x['beschreibung'].lower()), self._unfilteredFiles)
-        self.endResetModel()
+                                 and (len(self._av.filterDescription.text()) == 0 or self._av.filterDescription.text().lower() in x['beschreibung'].lower()), self._unfilteredFiles))
+    
+    def endResetModel(self):
+        QAbstractTableModel.endResetModel(self)
         self._table.resizeColumnsToContents()
         self._table.horizontalHeader().setStretchLastSection(True)
-                    
+        hasFiles = len(self._files) > 0
+        self._table.horizontalHeader().setVisible(hasFiles)
+        self._av.exportPdf.setEnabled(hasFiles)
+    
     def setActivePatient(self, infos):
+        self.beginResetModel()
         with self.lock("setActivePatient"):        
             self._infos = infos
             unb = infos["birthdate"]
             newinfos =  { **infos, 'birthdate': '{}.{}.{}'.format(unb[0:2], unb[2:4], unb[4:8]) }
-            labeltext = '{name}, {surname} *{birthdate} [{id}]'.format(**newinfos)
+            labeltext = '{id}, {name}, {surname}, *{birthdate}'.format(**newinfos)
             self._av.patientName.setText(labeltext)
             self._av.setWindowTitle('Archiv Viewer - {}'.format(labeltext))
             self.reloadData(int(infos["id"]))
+        self.endResetModel()
     
     def data(self, index, role):
         if role == Qt.DisplayRole:
-            with self.lock("setActivePatient"):
+            with self.lock("data / DisplayRole"):
                 file = self._files[index.row()]
-                col = index.column()
-                
-                if col == 0:
-                    return file["datum"].strftime('%d.%m.%Y')
-                elif col == 1:
-                    return file["datum"].strftime('%H:%M')
-                elif col == 2:
-                    try:
-                        return self._categoryModel.nameById(file["category"])
-                    except KeyError:
-                        return file["category"]
-                elif col == 3:
-                    return file["beschreibung"]
+            col = index.column()
+            
+            if col == 0:
+                return file["datum"].strftime('%d.%m.%Y')
+            elif col == 1:
+                return file["datum"].strftime('%H:%M')
+            elif col == 2:
+                try:
+                    return self._categoryModel.categoryById(file["category"])['krankenblatt']
+                except KeyError:
+                    return file["category"]
+            elif col == 3:
+                return file["beschreibung"]
         elif role == Qt.BackgroundRole:
-            with self.lock():
-                col = index.column()
-                if col == 2:
-                    try:
-                        colors = self._categoryModel.colorById(file["category"]) 
-                        if colors['red'] is not None:
-                            return QBrush(QColor.fromRgb(colors['red'], colors['green'], colors['blue']))
-                    except KeyError:
-                        pass
+            with self.lock("data / BackgroundRole"):
+                file = self._files[index.row()]
+            col = index.column()
+            if col == 2:
+                try:
+                    #print("Looking up for file '{}'".format(file["beschreibung"]))
+                    colors = self._categoryModel.colorById(file["category"]) 
+                    if colors['red'] is not None:
+                        return QBrush(QColor.fromRgb(colors['red'], colors['green'], colors['blue']))
+                except KeyError:
+                    pass
+        elif role == Qt.ToolTipRole:
+            col = index.column()
+            with self.lock("data / DisplayRole"):
+                    file = self._files[index.row()]
+            if col == 2:
+                return self._categoryModel.categoryById(file["category"])['name']
+            elif col == 3:
+                return file["beschreibung"]
+            
+                
     
     def rowCount(self, index):
         with self.lock("rowCount"):
-            return len(self._files)
+            rc = len(self._files)
+            return rc
         
     def columnCount(self, index):
         return 4
@@ -269,7 +315,7 @@ class ArchivTableModel(QAbstractTableModel):
         del cur
         
         self._dataReloaded.emit()
-        #self.applyFilters()
+        self._applyFilters()
         
         self._application.restoreOverrideCursor()
     
@@ -383,12 +429,16 @@ class ArchivTableModel(QAbstractTableModel):
     def updateProgress(self, value):
         self._av.exportProgress.setFormat('%d von %d' % (value, self._av.exportProgress.maximum()))
         self._av.exportProgress.setValue(value)
-                
+        self._av.taskbar_progress.setValue(value)
+        
     def exportCompleted(self, counter, destination):
         self._av.exportProgress.setFormat('')
         self._av.exportProgress.setEnabled(False)
-        self._av.exportPdf.setEnabled(True)
+        self._av.exportPdf.setEnabled(len(self._files)>0)
         self._av.documentView.setEnabled(True)
+        self._av.categoryList.setEnabled(True)
+        self._av.filterDescription.setEnabled(True)
+        self._av.taskbar_progress.hide()
         QMessageBox.information(self._av, "Export abgeschlossen", "%d Dokumente wurden nach '%s' exportiert" % (counter, destination))
     
     def handleError(self, msg):
@@ -417,9 +467,14 @@ class ArchivTableModel(QAbstractTableModel):
                 
             self._av.exportPdf.setEnabled(False)
             self._av.documentView.setEnabled(False)
+            self._av.categoryList.setEnabled(False)
+            self._av.filterDescription.setEnabled(False)
             self._av.exportProgress.setEnabled(True)
             self._av.exportProgress.setRange(0, len(filelist))
             self._av.exportProgress.setFormat('0 von %d' % (len(filelist)))
+            self._av.taskbar_progress.setRange(0, len(filelist))
+            self._av.taskbar_progress.setValue(0)
+            self._av.taskbar_progress.show()
             self.pdfExporter = PdfExporter(self, filelist, destination)
             self.exportThread = QThread()
             self.pdfExporter.moveToThread(self.exportThread)
@@ -560,10 +615,10 @@ def main():
         config = ConfigReader.get_instance()
         av = ArchivViewer()
         cm = CategoryModel(con)
+        av.categoryList.setModel(cm)
         tm = ArchivTableModel(con, myTemp, defaultLibrePath, av, app, cm)
         av.documentView.doubleClicked.connect(lambda: tableDoubleClicked(av.documentView, tm))
         av.documentView.setModel(tm)
-        av.categoryList.setModel(cm)
         av.actionStayOnTop.setChecked(config.getValue('stayontop', False))
         if config.getValue('stayontop', False):
             av.setWindowFlags(av.windowFlags() | Qt.WindowStaysOnTopHint)

@@ -4,10 +4,10 @@ block_cipher = None
 
 
 a = Analysis(['ArchivViewer.py'],
-             pathex=['H:\\Git Repos\\ArchivViewer'],
+             pathex=['E:\\workspace\\archivviewer'],
              binaries=[],
              datas=[],
-             hiddenimports=['PyPDF2', 'img2pdf', 'lhafile', 'fdb'],
+             hiddenimports=[],
              hookspath=[],
              runtime_hooks=[],
              excludes=[],

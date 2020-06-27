@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import sys
+import sys, io
 
 class MOMask:
     NOTUSECATEGORY = 0b00001000
@@ -144,7 +144,8 @@ def parse_blob_category(blob, offset):
              { 'catid': catid, 'krankenblatt': kbt,  'auftrag': auftrag,  'name': name, 'keycode': keycode, 'key2': key2, 'red': red, 'green': green, 
                 'blue': blue, 'useCategory': useCategory, 'dayProtocol': dayprotocol, 'autosend': autosend, 'emergencysend': emergencysend})
 
-def parse_blob_briefe(blob):
+def parse_briefe_blob(blob):
+    entries = []
     offset = 0
     totalLength =  int.from_bytes(blob[offset:offset+2], 'little')
     offset += 2
@@ -156,11 +157,35 @@ def parse_blob_briefe(blob):
     while offset < len(blob):
         entryLength = int.from_bytes(blob[offset:offset+2], 'little')
         offset += 2
-        result = parseBlobEntry(blob[offset:offset+entryLength])
-        entries[result['categoryId']] = result['name']
+        result = parse_briefe_entry(blob[offset:offset+entryLength])
+        entries.append(result)
         offset += entryLength
+    
+    return entries
+
+def parse_briefe_entry(blob):
+    stream = io.BytesIO(blob)
+    b1len = int.from_bytes(stream.read(2), 'little')
+    stream.read(b1len)
+    catid = None
+    namelen = int.from_bytes(stream.read(2), 'little')
+    name = stream.read(namelen)[:-1].decode('cp1252')
+    keycodelen = int.from_bytes(stream.read(2), 'little')
+    if keycodelen == 0:
+        stream.read(4)
+        keycodelen = int.from_bytes(stream.read(2), 'little')
+        keycode = stream.read(keycodelen)[:-1].decode('cp1252')
+        catidlen = int.from_bytes(stream.read(2), 'little')
+        catid = int.from_bytes(stream.read(catidlen), 'little')
+    else:
+        keycode = stream.read(keycodelen)[:-1].decode('cp1252')
+    if len(keycode) < 2:
+        keycode = ''.join(['q', keycode])
+        
+    return { 'categoryId': catid, 'name': name, 'keycode': keycode }
 
 if __name__ == "__main__":
     with open(sys.argv[1], "rb") as f:
         blob = f.read()
-        parse_blob(blob)
+        results = parse_briefe_blob(blob)
+        print(results)
