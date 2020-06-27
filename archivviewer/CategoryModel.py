@@ -1,6 +1,6 @@
 # CategoryModel.py
 
-import io
+import io, struct
 from PyQt5.QtCore import QAbstractListModel, QMutex, Qt
 from PyQt5.QtGui import QBrush, QColor
 from contextlib import contextmanager
@@ -13,33 +13,16 @@ class MOMask:
     AUTOSEND = 0b00000001
     EMERGENCYSEND = 0b00000010
 
-def parseBlobs(blobs):
-    entries = {}
-    for blob in blobs:
-        offset = 0
-        totalLength =  int.from_bytes(blob[offset:offset+2], 'little')
-        offset += 4
-        entryCount = int.from_bytes(blob[offset:offset+2], 'little')
-        offset += 2
+class ExceptionBytesIO(io.BytesIO):
+    def __init__(self, buffer = None):
+        io.BytesIO.__init__(self, buffer)
         
-        while offset < len(blob):
-            entryLength = int.from_bytes(blob[offset:offset+2], 'little')
-            offset += 2
-            result = parseBlobEntry(blob[offset:offset+entryLength])
-            entries[result['categoryId']] = result['name']
-            offset += entryLength
-    
-    return entries
-
-def parseBlobEntry(blob):
-    offset = 6
-    name_length = int.from_bytes(blob[offset:offset+2], 'little')
-    offset += 2
-    name = blob[offset:offset+name_length-1].decode('cp1252')
-    offset += name_length
-    catid = int.from_bytes(blob[-2:],  'little')
-    
-    return { 'name': name, 'categoryId': catid }
+    def read(self, size):
+        res = io.BytesIO.read(self, size)
+        if len(res) < size:
+            raise EOFError('End of stream reached')
+        
+        return res
 
 def parse_briefe_blob(blob):
     entries = []
@@ -81,7 +64,117 @@ def parse_briefe_entry(blob):
         
     return { 'categoryId': catid, 'name': name, 'keycode': keycode }
     
+def parse_ablage_blob(blob):
+    entries = []
+    stream = io.BytesIO(blob)
+    totalLength = int.from_bytes(stream.read(2), 'little')
+    entryCountLength = int.from_bytes(stream.read(2), 'little')
+    entryCount = int.from_bytes(stream.read(entryCountLength), 'little')
+    
+    while len(entries) < entryCount:
+        entrylen = int.from_bytes(stream.read(2), 'little')
+        entries.append(parse_ablage_entry(ExceptionBytesIO(stream.read(entrylen))))
         
+    return entries
+        
+def parse_ablage_entry(stream):
+    b1len = int.from_bytes(stream.read(2), 'little')
+    b1 = stream.read(b1len)
+    namelen = int.from_bytes(stream.read(2), 'little')
+    name = stream.read(namelen)[:-1].decode('cp1252')
+    keycodelen = int.from_bytes(stream.read(2), 'little')
+    keycode = stream.read(keycodelen)[:-1].decode('cp1252')
+    if len(keycode) < 2:
+        keycode = 's' + keycode
+    optionlen = int.from_bytes(stream.read(2), 'little')
+    if optionlen > 1:
+        options = stream.read(optionlen)[:-1]
+    qualitylen = int.from_bytes(stream.read(2), 'little')
+    quality = int.from_bytes(stream.read(qualitylen), 'little')
+    dpilen = int.from_bytes(stream.read(2), 'little')
+    dpi = int.from_bytes(stream.read(dpilen), 'little')
+    widthlen = int.from_bytes(stream.read(2), 'little')
+    width = struct.unpack('<d', stream.read(widthlen))[0]
+    heightlen = int.from_bytes(stream.read(2), 'little')
+    height = struct.unpack('<d', stream.read(heightlen))[0]
+    option2len = int.from_bytes(stream.read(2), 'little')
+    if option2len > 1:
+        options2 = stream.read(option2len)[:-1]
+    b5len = int.from_bytes(stream.read(2), 'little')
+    b5 = stream.read(b5len)
+    try:
+        b6len = int.from_bytes(stream.read(2), 'little')
+        b6 = stream.read(b6len)
+        b7len = int.from_bytes(stream.read(2), 'little')
+        b7 = stream.read(b7len)
+        catidlen = int.from_bytes(stream.read(2), 'little')
+        catid = int.from_bytes(stream.read(catidlen), 'little')
+    except:
+        catid = None
+        
+    return { 'categoryId': catid, 'name': name, 'keycode': keycode, 'quality': quality, 'dpi': dpi, 'width': width, 'height': height }
+    
+def parse_kategorien_blob(blob):
+    entries = []
+    stream = io.BytesIO(blob)
+    totalLength = int.from_bytes(stream.read(2), 'little')
+    entryCountLength = int.from_bytes(stream.read(2), 'little')
+    entryCount = int.from_bytes(stream.read(entryCountLength), 'little')
+    
+    while len(entries) < entryCount:
+        entrylen = int.from_bytes(stream.read(2), 'little')
+        entries.append(parse_kategorien_entry(ExceptionBytesIO(stream.read(entrylen))))
+        
+    return entries    
+
+def parse_kategorien_entry(stream):
+    b1len = int.from_bytes(stream.read(2), 'little')
+    b1 = stream.read(b1len)
+    namelen = int.from_bytes(stream.read(2), 'little')
+    name = stream.read(namelen)[:-1].decode('cp1252')
+    keycodelen = int.from_bytes(stream.read(2), 'little')
+    if keycodelen > 1:
+        keycode = stream.read(keycodelen)[:-1].decode('cp1252')
+        if len(keycode) < 2:
+            keycode = 'x' + keycode
+    else:
+        keycode = None
+    pathlen = int.from_bytes(stream.read(2), 'little')
+    if pathlen > 1:
+        path = stream.read(pathlen)[:-1].decode('cp1252')
+    else:
+        path = None
+    b2len = int.from_bytes(stream.read(2), 'little')
+    stream.read(b2len)
+    b3len = int.from_bytes(stream.read(2), 'little')
+    stream.read(b3len)
+    b4len = int.from_bytes(stream.read(2), 'little')
+    stream.read(b4len)
+    b5len = int.from_bytes(stream.read(2), 'little')
+    stream.read(b5len)
+    b6len = int.from_bytes(stream.read(2), 'little')
+    stream.read(b6len)
+    b7len = int.from_bytes(stream.read(2), 'little')
+    stream.read(b7len)
+    b8len = int.from_bytes(stream.read(2), 'little')
+    stream.read(b8len)
+    b9len = int.from_bytes(stream.read(2), 'little')
+    stream.read(b9len)
+    extlen = int.from_bytes(stream.read(2), 'little')
+    extension = stream.read(extlen)[:-1].decode('cp1252')
+    b10len = int.from_bytes(stream.read(2), 'little')
+    stream.read(b10len)
+    b11len = int.from_bytes(stream.read(2), 'little')
+    stream.read(b11len)
+    ftypelen = int.from_bytes(stream.read(2), 'little')
+    ftype = stream.read(ftypelen)[:-1].decode('cp1252')
+    if keycode is None:
+        keycode = ftype
+    catidlen = int.from_bytes(stream.read(2), 'little')
+    catid = int.from_bytes(stream.read(catidlen), 'little')
+    
+    return { 'categoryId': catid, 'name': name, 'keycode': keycode, 'filetype': ftype, 'extension': extension, 'application': path }
+    
 
 def parse_memo_blob(blob):
     categories = {}
@@ -245,15 +338,17 @@ class CategoryModel(QAbstractListModel):
         
     def reloadCategories(self):
         cur = self._con.cursor()
-        cur.execute("SELECT s.FMEMO, s.FBRIEFKATEGORIELISTE, s.FKATEGORIELISTE, s.FABLAGELISTE FROM MOSYSTEM s")
+        cur.execute("SELECT s.FMEMO, s.FBRIEFKATEGORIELISTE, s.FABLAGELISTE, s.FKATEGORIELISTE FROM MOSYSTEM s")
         for blobs in cur:
             self.beginResetModel()
             with self.lock("reloadCategories"):
                 self._fullcategories = parse_memo_blob(blobs[0])
                 briefcategories = parse_briefe_blob(blobs[1])
-                archivecategories = parseBlobs(blobs[2:])
+                ablagecategories = parse_ablage_blob(blobs[2])
+                kategoriencategories = parse_kategorien_blob(blobs[3])
+                archivecategories = {}
                 
-                for bc in briefcategories:
+                for bc in [*briefcategories, *ablagecategories, *kategoriencategories]:
                     if bc['categoryId'] is not None:
                         archivecategories[bc['categoryId']] = bc['name']
                     else:

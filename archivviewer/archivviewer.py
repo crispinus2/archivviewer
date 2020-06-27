@@ -192,12 +192,10 @@ class ArchivTableModel(QAbstractTableModel):
     def categorySelectionChanged(self, selected, deselected):
         for idx in selected.indexes():
             id = self._categoryModel.idAtRow(idx.row())
-            print("Adding cat id {} to selection".format(id))
             with self.lock("categorySelectionChanged: add"):
                 self._categoryFilter.add(id)
         for idx in deselected.indexes():
             id = self._categoryModel.idAtRow(idx.row())
-            print("Removing cat id {} from selection".format(id))
             with self.lock("categorySelectionChanged: add"):
                 self._categoryFilter.discard(id)
                 
@@ -306,7 +304,7 @@ class ArchivTableModel(QAbstractTableModel):
         
         self._unfilteredFiles = []
         
-        selectStm = "SELECT a.FSUROGAT, a.FTEXT, a.FEINTRAGSART, a.FZEIT, a.FDATUM FROM ARCHIV a WHERE a.FPATNR = ? ORDER BY a.FDATUM DESC, a.FZEIT DESC"
+        selectStm = "SELECT a.FSUROGAT, a.FTEXT, a.FEINTRAGSART, a.FZEIT, a.FDATUM FROM ARCHIV a WHERE a.FPATNR = ? AND a.FEINTRAGSART > 0 ORDER BY a.FDATUM DESC, a.FZEIT DESC"
         cur = self._con.cursor()
         cur.execute(selectStm, (patnr,))
         
@@ -664,7 +662,11 @@ def main():
     with tempdir() as myTemp:
         config = ConfigReader.get_instance()
         av = ArchivViewer()
-        cm = CategoryModel(con)
+        try:
+            cm = CategoryModel(con)
+        except Exception as e:
+            displayErrorMessage("Fehler beim Laden der Kategorien: {}".format(e))
+            sys.exit()
         av.categoryList.setModel(cm)
         tm = ArchivTableModel(con, myTemp, defaultLibrePath, av, app, cm)
         av.documentView.doubleClicked.connect(lambda: tableDoubleClicked(av.documentView, tm))
