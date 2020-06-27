@@ -257,13 +257,10 @@ class CategoryModel(QAbstractListModel):
                     if bc['categoryId'] is not None:
                         archivecategories[bc['categoryId']] = bc['name']
                     else:
-                        print("Trying to find match for keycode {}".format(bc['keycode']))
                         for fc in self._fullcategories.values():
                             if fc['krankenblatt'].lower() == bc['keycode'].lower():
-                                print("Match for keycode {}: id {} name {}".format(fc['krankenblatt'], fc['id'], bc['name']))
                                 archivecategories[fc['id']] = bc['name']
                                 break
-                print(archivecategories)
                 archivecategories = { k: { 'name': v, 'krankenblatt': self._fullcategories[k]['krankenblatt'] } if k in self._fullcategories else { 'name': v, 'krankenblatt': v } 
                                      for (k, v) in archivecategories.items() }
                 
