@@ -1,6 +1,6 @@
 # CategoryModel.py
 
-import io, struct
+import io, struct, os, sys
 from PyQt5.QtCore import QAbstractListModel, QMutex, Qt
 from PyQt5.QtGui import QBrush, QColor
 from contextlib import contextmanager
@@ -83,9 +83,12 @@ def parse_ablage_entry(stream):
     namelen = int.from_bytes(stream.read(2), 'little')
     name = stream.read(namelen)[:-1].decode('cp1252')
     keycodelen = int.from_bytes(stream.read(2), 'little')
-    keycode = stream.read(keycodelen)[:-1].decode('cp1252')
-    if len(keycode) < 2:
-        keycode = 's' + keycode
+    if keycodelen == 0:
+        keycode = None
+    else:
+        keycode = stream.read(keycodelen)[:-1].decode('cp1252')
+        if len(keycode) < 2:
+            keycode = 's' + keycode
     optionlen = int.from_bytes(stream.read(2), 'little')
     if optionlen > 1:
         options = stream.read(optionlen)[:-1]
@@ -100,8 +103,21 @@ def parse_ablage_entry(stream):
     option2len = int.from_bytes(stream.read(2), 'little')
     if option2len > 1:
         options2 = stream.read(option2len)[:-1]
-    b5len = int.from_bytes(stream.read(2), 'little')
-    b5 = stream.read(b5len)
+    rembyteslen = int.from_bytes(stream.read(2), 'little')
+    rembytes = int.from_bytes(stream.read(rembyteslen, 'little'))
+    lr = None
+    for i in range(0, rembytes):
+        rlen = int.from_bytes(stream.read(2), 'little')
+        lr = stream.read(rlen)
+    
+    if keycode == None:
+        keycodelen = int.from_bytes(stream.read(2), 'little')
+        keycode = stream.read(keycodelen)[:-1].decode('cp1252')
+        catidlen = int.from_bytes(stream.read(2), 'little')
+        catid = int.from_bytes(stream.read(catidlen), 'little')
+    elif lr is not None:
+        catid = int.from_bytes(lr, 'little')
+    
     try:
         b6len = int.from_bytes(stream.read(2), 'little')
         b6 = stream.read(b6len)
@@ -342,23 +358,27 @@ class CategoryModel(QAbstractListModel):
         for blobs in cur:
             self.beginResetModel()
             with self.lock("reloadCategories"):
-                self._fullcategories = parse_memo_blob(blobs[0])
-                briefcategories = parse_briefe_blob(blobs[1])
-                ablagecategories = parse_ablage_blob(blobs[2])
-                kategoriencategories = parse_kategorien_blob(blobs[3])
+                try:
+                    self._fullcategories = parse_memo_blob(blobs[0])
+                except:
+                    dumpfile = os.sep.join([os.path.dirname(os.path.abspath(sys.argv[0])), "MO-Memo-Dump.hex"])
+                    try:
+                        with open(dumpfile, "wb") as f:
+                            f.write(blobs[0])
+                    except:
+                        pass
+                    raise
                 archivecategories = {}
-                
-                for bc in [*briefcategories, *ablagecategories, *kategoriencategories]:
-                    if bc['categoryId'] is not None:
-                        archivecategories[bc['categoryId']] = bc['name']
-                    else:
-                        for fc in self._fullcategories.values():
-                            if fc['krankenblatt'].lower() == bc['keycode'].lower():
-                                archivecategories[fc['id']] = bc['name']
-                                break
-                archivecategories = { k: { 'name': v, 'krankenblatt': self._fullcategories[k]['krankenblatt'] } if k in self._fullcategories else { 'name': v, 'krankenblatt': v } 
-                                     for (k, v) in archivecategories.items() }
-                
+                filterprefixes = [ 'Bildarchiv', 'Externe Datei', 'Brief' ]
+                for (catid, cat) in self._fullcategories.items():
+                    print("Splitting {}: {}".format(catid, cat["name"]))
+                    try:
+                        prefix, shortname = cat["name"].split(" - ", 1)
+                        if prefix in filterprefixes:
+                            archivecategories[catid] = { 'name': shortname, 'krankenblatt': cat['krankenblatt'] }
+                    except ValueError:
+                        pass
+                    
                 self._archivecategories = OrderedDict(sorted(archivecategories.items(), key=lambda item: item[1]['name']))
                 
             self.endResetModel()
