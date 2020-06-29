@@ -4,9 +4,9 @@ block_cipher = None
 
 
 a = Analysis(['ArchivViewer.py'],
-             pathex=['E:\\workspace\\archivviewer'],
+             pathex=['H:\\Git Repos\\ArchivViewer'],
              binaries=[],
-             datas=[('archivviewer/icon128.png', 'archivviewer')],
+             datas=[],
              hiddenimports=[],
              hookspath=[],
              runtime_hooks=[],
