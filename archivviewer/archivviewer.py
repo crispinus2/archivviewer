@@ -1,6 +1,6 @@
 # Archivviewer.py
 
-import sys, codecs, os, fdb, json, tempfile, shutil, subprocess, io, winreg, configparser
+import sys, codecs, os, fdb, json, tempfile, shutil, subprocess, io, winreg, configparser, email
 from datetime import datetime, timedelta
 from collections import OrderedDict
 from contextlib import contextmanager
@@ -8,7 +8,7 @@ from pathlib import Path
 from lhafile import LhaFile
 from PyPDF2 import PdfFileMerger
 import img2pdf
-from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog
+from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog, QStyle
 from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QMutex, QTranslator, QLocale, QLibraryInfo, QEvent, QSettings
 from PyQt5.QtGui import QColor, QBrush, QIcon
 from PyQt5.QtWinExtras import QWinTaskbarProgress, QWinTaskbarButton
@@ -68,6 +68,8 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         print("Icon path: {}".format(iconpath))
         self.setWindowIcon(QIcon(iconpath))
         self.setWindowTitle("Archiv Viewer")
+        self.refreshFiles.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        self.exportPdf.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
         self.readSettings()
         self.delegate = FilesTableDelegate()
         self.documentView.setItemDelegate(self.delegate)
@@ -125,7 +127,7 @@ class FileChangeHandler(FileSystemEventHandler):
             infos = readGDT(self.gdtfile)
             try:
                 patid = int(infos["id"])
-                self.model.setActivePatient(infos)
+                self.model.activePatientChanged.emit(infos)
                 
             except TypeError:
                 pass
@@ -150,6 +152,7 @@ class PdfExporter(QObject):
 class ArchivTableModel(QAbstractTableModel):    
     _startDate = datetime(1890, 1, 1)
     _dataReloaded = pyqtSignal()
+    activePatientChanged = pyqtSignal(dict)
 
     def __init__(self, con, tmpdir, librepath, mainwindow, application, categoryModel):
         super(ArchivTableModel, self).__init__()
@@ -169,6 +172,8 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.filterDescription.textEdited.connect(self.filterTextChanged)
         self._dataReloaded.connect(self._av.filterDescription.clear)
         self._dataReloaded.connect(self.updateLabel)
+        self._av.refreshFiles.clicked.connect(lambda: self.activePatientChanged.emit(self._infos))
+        self.activePatientChanged.connect(self.setActivePatient)
         self.exportThread = None
         self.mutex = QMutex(mode=QMutex.Recursive)
         
@@ -196,12 +201,10 @@ class ArchivTableModel(QAbstractTableModel):
     def categorySelectionChanged(self, selected, deselected):
         for idx in selected.indexes():
             id = self._categoryModel.idAtRow(idx.row())
-            with self.lock("categorySelectionChanged: add"):
-                self._categoryFilter.add(id)
+            self._categoryFilter.add(id)
         for idx in deselected.indexes():
             id = self._categoryModel.idAtRow(idx.row())
-            with self.lock("categorySelectionChanged: add"):
-                self._categoryFilter.discard(id)
+            self._categoryFilter.discard(id)
                 
         self.applyFilters()
     
@@ -210,8 +213,7 @@ class ArchivTableModel(QAbstractTableModel):
     
     def applyFilters(self):
         self.beginResetModel()
-        with self.lock("_applyFilters"):
-            self._applyFilters()
+        self._applyFilters()
         self.endResetModel()
                 
     def _applyFilters(self):
@@ -229,28 +231,28 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.exportPdf.setEnabled(hasFiles)
     
     def updateLabel(self):
-        with self.lock("updateLabel"):
-            unb = self._infos["birthdate"]
-            newinfos =  { **self._infos, 'birthdate': '{}.{}.{}'.format(unb[0:2], unb[2:4], unb[4:8]) }
+        
+        unb = self._infos["birthdate"]
+        newinfos =  { **self._infos, 'birthdate': '{}.{}.{}'.format(unb[0:2], unb[2:4], unb[4:8]) }
         labeltext = '{id}, {name}, {surname}, *{birthdate}'.format(**newinfos)
         self._av.patientName.setText(labeltext)
         self._av.setWindowTitle('Archiv Viewer - {}'.format(labeltext))
         
     def setActivePatient(self, infos):
         self.beginResetModel()
-        with self.lock("setActivePatient"):        
-            self._infos = infos
-            unb = infos["birthdate"]
-            newinfos =  { **infos, 'birthdate': '{}.{}.{}'.format(unb[0:2], unb[2:4], unb[4:8]) }
+        
+        self._infos = infos
+        unb = infos["birthdate"]
+        newinfos =  { **infos, 'birthdate': '{}.{}.{}'.format(unb[0:2], unb[2:4], unb[4:8]) }
             
-            self.reloadData(int(infos["id"]))
+        self.reloadData(int(infos["id"]))
         self.endResetModel()
+        self._av.refreshFiles.setEnabled(True)
         self._dataReloaded.emit()
     
     def data(self, index, role):
         if role == Qt.DisplayRole:
-            with self.lock("data / DisplayRole"):
-                file = self._files[index.row()]
+            file = self._files[index.row()]
             col = index.column()
             
             if col == 0:
@@ -265,8 +267,7 @@ class ArchivTableModel(QAbstractTableModel):
             elif col == 3:
                 return file["beschreibung"]
         elif role == Qt.BackgroundRole:
-            with self.lock("data / BackgroundRole"):
-                file = self._files[index.row()]
+            file = self._files[index.row()]
             col = index.column()
             if col == 2:
                 try:
@@ -277,8 +278,8 @@ class ArchivTableModel(QAbstractTableModel):
                     pass
         elif role == Qt.ToolTipRole:
             col = index.column()
-            with self.lock("data / DisplayRole"):
-                    file = self._files[index.row()]
+            
+            file = self._files[index.row()]
             if col == 2:
                 return self._categoryModel.categoryById(file["category"])['name']
             elif col == 3:
@@ -290,9 +291,8 @@ class ArchivTableModel(QAbstractTableModel):
                 
     
     def rowCount(self, index):
-        with self.lock("rowCount"):
-            rc = len(self._files)
-            return rc
+        rc = len(self._files)
+        return rc
         
     def columnCount(self, index):
         return 4
@@ -332,124 +332,123 @@ class ArchivTableModel(QAbstractTableModel):
         
         self._application.restoreOverrideCursor()
     
-    def generateFile(self, rowIndex, errorSlot = None):
+    def generateFile(self, file, errorSlot = None):
+        filename = self._tmpdir + os.sep + '{}.pdf'.format(file["id"])
         with self.lock("generateFile"):
-            file = self._files[rowIndex]
-            filename = self._tmpdir + os.sep + '{}.pdf'.format(file["id"])
-        if not os.path.isfile(filename):
-            selectStm = "SELECT a.FDATEI FROM ARCHIV a WHERE a.FSUROGAT = ?"
-            cur = self._con.cursor()
-            cur.execute(selectStm, (file["id"],))
-            (datei,) = cur.fetchone()
-            
-            merger = PdfFileMerger()
-            ios = None
-            try:
-                contents = datei.read()
-                ios = io.BytesIO(contents)
-            except:
-                ios = io.BytesIO(datei)
-                    
-            lf = LhaFile(ios)
-            
-            appended = False
-            loextensions = ('.odt', '.ods')
-            
-            for name in lf.namelist():
-                content = lf.read(name)
-                _, extension = os.path.splitext(name)
-                if content[0:5] == b'%PDF-':                  
-                    merger.append(io.BytesIO(content))
-                    appended = True
-                elif content[0:5] == b'{\\rtf' or (content[0:4] == bytes.fromhex('504B0304') and extension in loextensions):
-                    with tempdir() as tmpdir:
-                        tmpfile = os.sep.join([tmpdir, "temp" + extension])
-                        pdffile = tmpdir + os.sep + "temp.pdf"
-                        with open(tmpfile, "wb") as f:
-                            f.write(content)
-                        command = '"'+" ".join(['"'+self._librepath+'"', "--convert-to pdf", "--outdir", '"'+tmpdir+'"', '"'+tmpfile+'"'])+'"'
-                        if os.system(command) == 0:
-                            try:
-                                with open(pdffile, "rb") as f:
-                                    merger.append(io.BytesIO(f.read()))
-                                    
-                                appended = True
-                            except:
-                                err = "%s: Fehler beim Öffnen der konvertierten PDF-Datei '%s' (konvertiert aus '%s')" % (file['beschreibung'], pdffile, tmpfile)
+            if not os.path.isfile(filename):
+                selectStm = "SELECT a.FDATEI FROM ARCHIV a WHERE a.FSUROGAT = ?"
+                cur = self._con.cursor()
+                cur.execute(selectStm, (file["id"],))
+                (datei,) = cur.fetchone()
+                
+                merger = PdfFileMerger()
+                ios = None
+                try:
+                    contents = datei.read()
+                    ios = io.BytesIO(contents)
+                except:
+                    ios = io.BytesIO(datei)
+                        
+                lf = LhaFile(ios)
+                
+                appended = False
+                loextensions = ('.odt', '.ods')
+                
+                for name in lf.namelist():
+                    content = lf.read(name)
+                    _, extension = os.path.splitext(name)
+                    if content[0:5] == b'%PDF-':                  
+                        merger.append(io.BytesIO(content))
+                        appended = True
+                    elif content[0:5] == b'{\\rtf' or (content[0:4] == bytes.fromhex('504B0304') and extension in loextensions):
+                        with tempdir() as tmpdir:
+                            tmpfile = os.sep.join([tmpdir, "temp" + extension])
+                            pdffile = tmpdir + os.sep + "temp.pdf"
+                            with open(tmpfile, "wb") as f:
+                                f.write(content)
+                            command = '"'+" ".join(['"'+self._librepath+'"', "--convert-to pdf", "--outdir", '"'+tmpdir+'"', '"'+tmpfile+'"'])+'"'
+                            if os.system(command) == 0:
+                                try:
+                                    with open(pdffile, "rb") as f:
+                                        merger.append(io.BytesIO(f.read()))
+                                        
+                                    appended = True
+                                except:
+                                    err = "%s: Fehler beim Öffnen der konvertierten PDF-Datei '%s' (konvertiert aus '%s')" % (file['beschreibung'], pdffile, tmpfile)
+                                    if errorSlot:
+                                        errorSlot.emit(err)
+                                    else:
+                                        displayErrorMessage(err)
+                            else:
+                                err = "%s: Fehler beim Ausführen des Kommandos: '%s'" % (file['beschreibung'], command)
                                 if errorSlot:
                                     errorSlot.emit(err)
                                 else:
                                     displayErrorMessage(err)
-                        else:
-                            err = "%s: Fehler beim Ausführen des Kommandos: '%s'" % (file['beschreibung'], command)
+                    elif name == "message.eml":
+                        # eArztbrief
+                        eml = email.message_from_bytes(content)
+                        errors = []                    
+                        for part in eml.get_payload():
+                            fnam = part.get_filename()
+                            partcont = part.get_payload(decode=True)
+                            if partcont[0:5] == b'%PDF-':
+                                merger.append(io.BytesIO(partcont))
+                                appended = True
+                            else:
+                                errors.append("%s: eArztbrief: nicht unterstütztes Anhangsformat in Anhang '%s'" % (file["beschreibung"], fnam))
+                        
+                        if not appended and len(errors) > 0:
+                            errmsg = '\n'.join(errors)
                             if errorSlot:
                                 errorSlot.emit(err)
                             else:
                                 displayErrorMessage(err)
-                elif name == "message.eml":
-                    # eArztbrief
-                    eml = email.message_from_bytes(content)
-                                        
-                    for part in eml.get_payload():
-                        fnam = part.get_filename()
-                        partcont = part.get_payload(decode=True)
-                        if partcont[0:5] == b'%PDF-':
-                            merger.append(io.BytesIO(partcont))
+                    else:
+                        try:
+                            merger.append(io.BytesIO(img2pdf.convert(content)))
                             appended = True
-                        else:
-                            err = "%s: eArztbrief: nicht unterstütztes Anhangsformat in Anhang '%s'" % (file["beschreibung"], fnam)
+                        except Exception as e:
+                            err = "%s: Dateiinhalt '%s' ist kein unterstützter Dateityp -> wird nicht an PDF angehängt (%s)" % (file["beschreibung"], name, e)
                             if errorSlot:
                                 errorSlot.emit(err)
                             else:
                                 displayErrorMessage(err)
-                else:
+                
+                if appended:
                     try:
-                        merger.append(io.BytesIO(img2pdf.convert(content)))
-                        appended = True
+                        merger.write(filename)
                     except Exception as e:
-                        err = "%s: Dateiinhalt '%s' ist kein unterstützter Dateityp -> wird nicht an PDF angehängt (%s)" % (file["beschreibung"], name, e)
+                        err = "{}: Fehler beim Schreiben der Ausgabedatei '{}': {}".format(file["beschreibung"], filename, e)
                         if errorSlot:
                             errorSlot.emit(err)
                         else:
                             displayErrorMessage(err)
-            
-            if appended:
-                try:
-                    merger.write(filename)
-                except Exception as e:
-                    err = "{}: Fehler beim Schreiben der Ausgabedatei '{}': {}".format(file["beschreibung"], filename, e)
-                    if errorSlot:
-                        errorSlot.emit(err)
-                    else:
-                        displayErrorMessage(err)
-            else:
-                filename = None
+                else:
+                    filename = None
+                    
+                merger.close()
                 
-            merger.close()
-            
-            try:
-                datei.close()
-            except:
-                pass
-            ios.close()
+                try:
+                    datei.close()
+                except:
+                    pass
+                ios.close()
         return filename
     
     def displayFile(self, rowIndex):
         self._application.setOverrideCursor(Qt.WaitCursor)
-        filename = self.generateFile(rowIndex)
+        file = self._files[rowIndex]
+        filename = self.generateFile(file)
         self._application.restoreOverrideCursor()
         if filename is not None:
             subprocess.run(['start', filename], shell=True)
     
-    def exportAsPdfThread(self, thread, filelist, destination):
-        self._application.setOverrideCursor(Qt.WaitCursor)
-        with self.lock("exportAsPdfThread"):
-            files = list(self._files)
+    def exportAsPdfThread(self, thread, filelist, destination):       
         try:
             merger = PdfFileMerger()
             counter = 0
             failed = 0
-            filelist = sorted(filelist)
             for file in filelist:
                 counter += 1
                 thread.progress.emit(counter)
@@ -458,7 +457,7 @@ class ArchivTableModel(QAbstractTableModel):
                 if filename is None:
                     failed += 1
                 else:
-                    bmtext = " ".join([files[file]["beschreibung"], files[file]["datum"].strftime('%d.%m.%Y %H:%M')])
+                    bmtext = " ".join([file["beschreibung"], file["datum"].strftime('%d.%m.%Y %H:%M')])
                     merger.append(filename, bookmark=bmtext)
             
             if failed < counter:
@@ -469,7 +468,6 @@ class ArchivTableModel(QAbstractTableModel):
             thread.error.emit("Fehler beim Schreiben der PDF-Datei: {}".format(e))
             
         thread.progress.emit(0)
-        self._application.restoreOverrideCursor()
         thread.completed.emit(counter, failed, destination)
         
         return counter
@@ -480,6 +478,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.taskbar_progress.setValue(value)
         
     def exportCompleted(self, counter, failed, destination):
+        self._application.restoreOverrideCursor()
         self._av.exportProgress.setFormat('')
         self._av.exportProgress.setEnabled(False)
         self._av.exportPdf.setEnabled(len(self._files)>0)
@@ -503,10 +502,16 @@ class ArchivTableModel(QAbstractTableModel):
         if len(filelist) == 0:
             buttonReply = QMessageBox.question(self._av, 'PDF-Export', "Kein Dokument ausgewählt. Export aus allen angezeigten Dokumenten des Patienten erzeugen?", QMessageBox.Yes | QMessageBox.No)
             if(buttonReply == QMessageBox.Yes):
-                with self.lock("exportAsPdf (filelist)"):
-                    filelist = range(len(self._files))
+                filelist = range(len(self._files))
             else:
                 return
+        
+        self._application.setOverrideCursor(Qt.WaitCursor)
+        
+        filelist = sorted(filelist)
+        files = []
+        for f in filelist:
+            files.append(self._files[f])
         
         conf = ConfigReader.get_instance()
         outfiledir = conf.getValue('outfiledir', '')
@@ -530,7 +535,7 @@ class ArchivTableModel(QAbstractTableModel):
             self._av.taskbar_progress.setRange(0, len(filelist))
             self._av.taskbar_progress.setValue(0)
             self._av.taskbar_progress.show()
-            self.pdfExporter = PdfExporter(self, filelist, destination)
+            self.pdfExporter = PdfExporter(self, files, destination)
             self.exportThread = QThread()
             self.pdfExporter.moveToThread(self.exportThread)
             self.pdfExporter.kill.connect(self.exportThread.quit)
@@ -664,8 +669,9 @@ def main():
             
         gdtfile = res[0][:-1].decode('windows-1252')
         del cur
-        if not os.path.isdir(os.path.dirname(gdtfile)):
-            raise Exception("Ungültiger Pfad: '{}'. Bitte korrekten Pfad für Patientenexportdatei im Datenpflegesystem konfigurieren.".format(gdtfile))
+        if not os.path.isfile(gdtfile):
+            raise Exception("Ungültiger Pfad: '{}'. Bitte korrekten Pfad für Patientenexportdatei im Datenpflegesystem konfigurieren. \
+                Es muss in Medical Office anschließend mindestens ein Patient aufgerufen werden, um die Datei zu initialisieren.".format(gdtfile))
     except Exception as e:
         displayErrorMessage("Fehler beim Feststellen des Exportpfades: {}".format(e))
         sys.exit()
@@ -701,9 +707,9 @@ def main():
         
         try:
             infos = readGDT(gdtfile)
-            tm.setActivePatient(infos)
+            tm.activePatientChanged.emit(infos)
         except Exception as e:
-            print("While loading GDT file: %s" % (e))
+            displayErrorMessage("While loading GDT file: %s" % (e))
         
         av.show()
         ret = app.exec_()
