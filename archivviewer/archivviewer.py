@@ -168,6 +168,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.categoryList.selectionModel().selectionChanged.connect(self.categorySelectionChanged)
         self._av.filterDescription.textEdited.connect(self.filterTextChanged)
         self._dataReloaded.connect(self._av.filterDescription.clear)
+        self._dataReloaded.connect(self.updateLabel)
         self.exportThread = None
         self.mutex = QMutex(mode=QMutex.Recursive)
         
@@ -227,17 +228,24 @@ class ArchivTableModel(QAbstractTableModel):
         self._table.horizontalHeader().setVisible(hasFiles)
         self._av.exportPdf.setEnabled(hasFiles)
     
+    def updateLabel(self):
+        with self.lock("updateLabel"):
+            unb = self._infos["birthdate"]
+            newinfos =  { **self._infos, 'birthdate': '{}.{}.{}'.format(unb[0:2], unb[2:4], unb[4:8]) }
+        labeltext = '{id}, {name}, {surname}, *{birthdate}'.format(**newinfos)
+        self._av.patientName.setText(labeltext)
+        self._av.setWindowTitle('Archiv Viewer - {}'.format(labeltext))
+        
     def setActivePatient(self, infos):
         self.beginResetModel()
         with self.lock("setActivePatient"):        
             self._infos = infos
             unb = infos["birthdate"]
             newinfos =  { **infos, 'birthdate': '{}.{}.{}'.format(unb[0:2], unb[2:4], unb[4:8]) }
-            labeltext = '{id}, {name}, {surname}, *{birthdate}'.format(**newinfos)
-            self._av.patientName.setText(labeltext)
-            self._av.setWindowTitle('Archiv Viewer - {}'.format(labeltext))
+            
             self.reloadData(int(infos["id"]))
         self.endResetModel()
+        self._dataReloaded.emit()
     
     def data(self, index, role):
         if role == Qt.DisplayRole:
@@ -320,8 +328,6 @@ class ArchivTableModel(QAbstractTableModel):
             })
         
         del cur
-        
-        self._dataReloaded.emit()
         self._applyFilters()
         
         self._application.restoreOverrideCursor()
@@ -347,15 +353,17 @@ class ArchivTableModel(QAbstractTableModel):
             lf = LhaFile(ios)
             
             appended = False
+            loextensions = ('.odt', '.ods')
             
             for name in lf.namelist():
                 content = lf.read(name)
+                _, extension = os.path.splitext(name)
                 if content[0:5] == b'%PDF-':                  
                     merger.append(io.BytesIO(content))
                     appended = True
-                elif content[0:5] == b'{\\rtf':
+                elif content[0:5] == b'{\\rtf' or (content[0:4] == bytes.fromhex('504B0304') and extension in loextensions):
                     with tempdir() as tmpdir:
-                        tmpfile = tmpdir + os.sep + "temp.rtf"
+                        tmpfile = os.sep.join([tmpdir, "temp" + extension])
                         pdffile = tmpdir + os.sep + "temp.pdf"
                         with open(tmpfile, "wb") as f:
                             f.write(content)
@@ -367,7 +375,7 @@ class ArchivTableModel(QAbstractTableModel):
                                     
                                 appended = True
                             except:
-                                err = "%s: Fehler beim Öffnen der konvertierten PDF-Datei '%s'" % (file['beschreibung'], pdffile)
+                                err = "%s: Fehler beim Öffnen der konvertierten PDF-Datei '%s' (konvertiert aus '%s')" % (file['beschreibung'], pdffile, tmpfile)
                                 if errorSlot:
                                     errorSlot.emit(err)
                                 else:
