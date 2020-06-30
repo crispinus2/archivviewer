@@ -1,11 +1,13 @@
 # CategoryModel.py
 
-import io, struct, os, sys
+import io, struct, os, sys, logging
 from PyQt5.QtCore import QAbstractListModel, QMutex, Qt
 from PyQt5.QtGui import QBrush, QColor
 from contextlib import contextmanager
 from collections import OrderedDict
 from itertools import islice
+
+LOGGER = logging.getLogger(__name__)
 
 class MOMask:
     NOTUSECATEGORY = 0b00001000
@@ -371,7 +373,7 @@ class CategoryModel(QAbstractListModel):
                 archivecategories = {}
                 filterprefixes = [ 'Bildarchiv', 'Externe Datei', 'Brief' ]
                 for (catid, cat) in self._fullcategories.items():
-                    print("Splitting {}: {}".format(catid, cat["name"]))
+                    LOGGER.debug("Splitting {}: {}".format(catid, cat["name"]))
                     try:
                         prefix, shortname = cat["name"].split(" - ", 1)
                         if prefix in filterprefixes:

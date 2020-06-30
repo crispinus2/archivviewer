@@ -26,6 +26,7 @@ from .FilesTableDelegate import FilesTableDelegate
 exportThread = None
 
 logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger(__name__)
 
 def ilen(iterable):
     return reduce(lambda sum, element: sum + 1, iterable, 0)
@@ -69,7 +70,6 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         self.taskbar_progress = None
         self.setupUi(self)
         iconpath = os.sep.join([os.path.dirname(os.path.realpath(__file__)), 'icon128.png'])
-        print("Icon path: {}".format(iconpath))
         self.setWindowIcon(QIcon(iconpath))
         self.setWindowTitle("Archiv Viewer")
         self.refreshFiles.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
@@ -646,7 +646,7 @@ def main():
 
     for cfg in [conffile2]:
         try:
-            print("Attempting config %s" % (cfg))
+            LOGGER.debug("Attempting config %s" % (cfg))
             with open(cfg, 'r') as f:
                 conf = json.load(f)
                 if "dbuser" in conf:
@@ -659,15 +659,15 @@ def main():
                     defaultClientLib = conf["clientlib"]
             break
         except Exception as e:
-            print("Failed to load config: %s." % (e))
+            LOGGER.info("Failed to load config: %s." % (e))
     
-    print("Client lib is %s" % (defaultClientLib))
-    print("DB Path is %s on %s" % (defaultDb, defaultHost))
+    LOGGER.debug("Client lib is %s" % (defaultClientLib))
+    LOGGER.debug("DB Path is %s on %s" % (defaultDb, defaultHost))
     try:
-        print("Connecting db")
+        LOGGER.debug("Connecting db '{}' at '{}', port 2013 as user {}".format(defaultDb, defaultHost, defaultDbUser))
         con = fdb.connect(host=defaultHost, database=defaultDb, port=2013,
             user=defaultDbUser, password=defaultDbPassword, fb_library_name=defaultClientLib)
-        print("Connection established.")
+        LOGGER.debug("Connection established.")
     except Exception as e:
         displayErrorMessage('Fehler beim Verbinden mit der Datenbank: {}. Pfad zur DLL-Datei: {}'.format(e, defaultClientLib))
         sys.exit()
