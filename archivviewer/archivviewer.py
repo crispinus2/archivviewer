@@ -78,6 +78,8 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         self.delegate = FilesTableDelegate()
         self.documentView.setItemDelegate(self.delegate)
         self.actionStayOnTop.changed.connect(self.stayOnTopChanged)
+        self.actionShowPDFAfterExport.changed.connect(self.showPDFAfterExportChanged)
+        self.actionUseImg2pdf.changed.connect(self.useImg2pdfChanged)
     
     def displayErrorMessage(self, msg):
         QMessageBox.critical(self, "Fehler", str(msg))    
@@ -90,7 +92,15 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         else:
             self.setWindowFlags(self.windowFlags() & (~Qt.WindowStaysOnTopHint))
         self.show()
-        
+    
+    def showPDFAfterExportChanged(self):
+        show = self.actionShowPDFAfterExport.isChecked()
+        self._config.setValue('showPDFAfterExport', show)
+    
+    def useImg2pdfChanged(self):
+        use = self.actionUseImg2pdf.isChecked()
+        self._config.setValue('useImg2pdf', use)
+    
     def event(self, evt):
         ontop = self._config.getValue('stayontop')
         if evt.type() == QEvent.WindowActivate or evt.type() == QEvent.HoverEnter:
@@ -176,6 +186,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._categoryFilter = set()
         self._av.categoryList.selectionModel().selectionChanged.connect(self.categorySelectionChanged)
         self._av.filterDescription.textEdited.connect(self.filterTextChanged)
+        self._config = ConfigReader.get_instance()
         self._dataReloaded.connect(self._av.filterDescription.clear)
         self._dataReloaded.connect(self.updateLabel)
         self._av.refreshFiles.clicked.connect(lambda: self.activePatientChanged.emit(self._infos))
@@ -418,9 +429,19 @@ class ArchivTableModel(QAbstractTableModel):
                                 img.save(outbuffer, 'PDF')
                                 merger.append(outbuffer)
                                 appended = True
-                            else:
+                            elif self._config.getValue('useImg2pdf', True):
+                                LOGGER.debug("Using img2pdf for file conversion")
                                 merger.append(io.BytesIO(img2pdf.convert(content)))
                                 appended = True
+                            else:
+                                LOGGER.debug("Using PIL for file conversion")
+                                inbuffer = io.BytesIO(content)
+                                img = Image.open(inbuffer)
+                                outbuffer = io.BytesIO()
+                                img.save(outbuffer, 'PDF')
+                                merger.append(outbuffer)
+                                appended = True
+                                del inbuffer
                         except Exception as e:
                             err = "%s: Dateiinhalt '%s' ist kein unterstützter Dateityp -> wird nicht an PDF angehängt (%s)" % (file["beschreibung"], name, e)
                             if errorSlot:
@@ -499,14 +520,20 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.categoryList.setEnabled(True)
         self._av.filterDescription.setEnabled(True)
         self._av.taskbar_progress.hide()
+        success = False
         if failed == 0:
             QMessageBox.information(self._av, "Export abgeschlossen", "%d Dokumente wurden nach '%s' exportiert" % (counter, destination))
+            success = True
         elif failed < counter:
             message = '\n'.join([ "%d von %d Dokumenten wurden nach '%s' exportiert\n\nWährend des Exports sind Fehler aufgetreten:\n" % (counter-failed, counter, destination), *self._exportErrors ])
             QMessageBox.warning(self._av, "Export abgeschlossen", message)
+            success = True
         else:
             message = '\n'.join([ "Es konnten keine Dokumente exportiert werden:", *self._exportErrors ])
             QMessageBox.critical(self._av, "Export fehlgeschlagen", message)
+            
+        if success and self._config.getValue('showPDFAfterExport', False):
+            subprocess.run(['start', destination.replace('/', '\\')], shell=True)
     
     def handleError(self, msg):
         self._exportErrors.append(msg)
@@ -518,8 +545,6 @@ class ArchivTableModel(QAbstractTableModel):
                 filelist = range(len(self._files))
             else:
                 return
-        
-        self._application.setOverrideCursor(Qt.WaitCursor)
         
         filelist = sorted(filelist)
         files = []
@@ -537,6 +562,7 @@ class ArchivTableModel(QAbstractTableModel):
                 conf.setValue('outfiledir', os.path.dirname(destination))
             except:
                 pass
+            self._application.setOverrideCursor(Qt.WaitCursor)
             self._exportErrors = []    
             self._av.exportPdf.setEnabled(False)
             self._av.documentView.setEnabled(False)
@@ -607,6 +633,9 @@ def exportSelectionAsPdf(table, model):
 
 def main():
     app = QApplication(sys.argv)
+    config = ConfigReader.get_instance()
+    if config.getValue('loglevel', 'info') == 'debug':
+        logging.getLogger().setLevel(logging.DEBUG)
     qt_translator = QTranslator()
     qt_translator.load("qt_" + QLocale.system().name(),
         QLibraryInfo.location(QLibraryInfo.TranslationsPath))
@@ -690,7 +719,6 @@ def main():
         sys.exit()
         
     with tempdir() as myTemp:
-        config = ConfigReader.get_instance()
         av = ArchivViewer()
         try:
             cm = CategoryModel(con)
@@ -702,6 +730,8 @@ def main():
         av.documentView.doubleClicked.connect(lambda: tableDoubleClicked(av.documentView, tm))
         av.documentView.setModel(tm)
         av.actionStayOnTop.setChecked(config.getValue('stayontop', False))
+        av.actionShowPDFAfterExport.setChecked(config.getValue('showPDFAfterExport', False))
+        av.actionUseImg2pdf.setChecked(config.getValue('useImg2pdf', True))
         if config.getValue('stayontop', False):
             av.setWindowFlags(av.windowFlags() | Qt.WindowStaysOnTopHint)
         av.exportPdf.clicked.connect(lambda: exportSelectionAsPdf(av.documentView, tm))

@@ -64,7 +64,8 @@
             <string>A&amp;ktualisieren</string>
            </property>
            <property name="icon">
-            <iconset theme="view-refresh"/>
+            <iconset theme="view-refresh">
+             <normaloff>.</normaloff>.</iconset>
            </property>
           </widget>
          </item>
@@ -258,6 +259,9 @@
     <property name="title">
      <string>&amp;Datei</string>
     </property>
+    <addaction name="actionShowPDFAfterExport"/>
+    <addaction name="actionUseImg2pdf"/>
+    <addaction name="separator"/>
     <addaction name="action_quit"/>
    </widget>
    <widget class="QMenu" name="menu_Hilfe">
@@ -296,6 +300,22 @@
    </property>
    <property name="text">
     <string>&amp;im Vordergrund bleiben</string>
+   </property>
+  </action>
+  <action name="actionShowPDFAfterExport">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>PDF-Dokument nach Export anzeigen</string>
+   </property>
+  </action>
+  <action name="actionUseImg2pdf">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Nutze img2pdf</string>
    </property>
   </action>
  </widget>
