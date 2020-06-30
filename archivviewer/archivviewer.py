@@ -460,6 +460,15 @@ class ArchivTableModel(QAbstractTableModel):
                             self._av.displayErrorMessage(err)
                 else:
                     filename = None
+                    blobfilename = os.sep.join([self._tmpdir, '{}.blb'.format(file["id"])])
+                    ios.seek(0)
+                    with open(blobfilename, 'wb') as f:
+                        f.write(ios.read())
+                    err = "Ein Abzug des Blobinhalts wurde nach '{}' geschrieben. Er ist dort bis zum Programmende verfügbar.".format(blobfilename)
+                    if errorSlot:
+                        errorSlot.emit(err)
+                    else:
+                        self._av.displayErrorMessage(err)
                     
                 merger.close()
                 
