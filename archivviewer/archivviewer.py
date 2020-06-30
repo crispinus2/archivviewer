@@ -351,6 +351,7 @@ class ArchivTableModel(QAbstractTableModel):
     
     def generateFile(self, file, errorSlot = None):
         filename = self._tmpdir + os.sep + '{}.pdf'.format(file["id"])
+        collectedErrors = []
         with self.lock("generateFile"):
             if not os.path.isfile(filename):
                 selectStm = "SELECT a.FDATEI FROM ARCHIV a WHERE a.FSUROGAT = ?"
@@ -395,13 +396,13 @@ class ArchivTableModel(QAbstractTableModel):
                                     if errorSlot:
                                         errorSlot.emit(err)
                                     else:
-                                        self._av.displayErrorMessage(err)
+                                        collectedErrors.append(err)
                             else:
                                 err = "%s: Fehler beim Ausführen des Kommandos: '%s'" % (file['beschreibung'], command)
                                 if errorSlot:
                                     errorSlot.emit(err)
                                 else:
-                                    self._av.displayErrorMessage(err)
+                                    collectedErrors.append(err)
                     elif name == "message.eml":
                         # eArztbrief
                         eml = email.message_from_bytes(content)
@@ -416,11 +417,11 @@ class ArchivTableModel(QAbstractTableModel):
                                 errors.append("%s: eArztbrief: nicht unterstütztes Anhangsformat in Anhang '%s'" % (file["beschreibung"], fnam))
                         
                         if not appended and len(errors) > 0:
-                            errmsg = '\n'.join(errors)
+                            err = '\n'.join(errors)
                             if errorSlot:
                                 errorSlot.emit(err)
                             else:
-                                self._av.displayErrorMessage(err)
+                                collectedErrors.append(err)
                     else:
                         try:
                             if content[0:4] == bytes.fromhex('FFD8FFE0'):
@@ -447,7 +448,7 @@ class ArchivTableModel(QAbstractTableModel):
                             if errorSlot:
                                 errorSlot.emit(err)
                             else:
-                                self._av.displayErrorMessage(err)
+                                collectedErrors.append(err)
                 
                 if appended:
                     try:
@@ -468,7 +469,8 @@ class ArchivTableModel(QAbstractTableModel):
                     if errorSlot:
                         errorSlot.emit(err)
                     else:
-                        self._av.displayErrorMessage(err)
+                        collectedErrors.append(err)
+                        self._av.displayErrorMessage('\n'.join(collectedErrors))
                     
                 merger.close()
                 
