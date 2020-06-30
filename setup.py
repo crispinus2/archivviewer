@@ -28,7 +28,9 @@ setup(
         "PyQt5 >= 5.15.0",
         "watchdog >= 0.10.2",
         "pyqt-distutils",
-        "fdb"
+        "fdb",
+        "pylibjpeg",
+        "pylibjpeg-libjpeg"
     ],
     package_data={'archivviewer': ['icon128.png']},
     entry_points = {

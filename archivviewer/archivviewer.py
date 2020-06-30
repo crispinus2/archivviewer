@@ -1,6 +1,6 @@
 # Archivviewer.py
 
-import sys, codecs, os, fdb, json, tempfile, shutil, subprocess, io, winreg, configparser, email
+import sys, codecs, os, fdb, json, tempfile, shutil, subprocess, io, winreg, configparser, email, logging
 from datetime import datetime, timedelta
 from collections import OrderedDict
 from contextlib import contextmanager
@@ -8,6 +8,8 @@ from pathlib import Path
 from lhafile import LhaFile
 from PyPDF2 import PdfFileMerger
 import img2pdf
+import pylibjpeg
+from PIL import Image, ImageFile
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog, QStyle
 from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QMutex, QTranslator, QLocale, QLibraryInfo, QEvent, QSettings
 from PyQt5.QtGui import QColor, QBrush, QIcon
@@ -22,6 +24,8 @@ from .CategoryModel import CategoryModel
 from .FilesTableDelegate import FilesTableDelegate
 
 exportThread = None
+
+logging.basicConfig(level=logging.INFO)
 
 def ilen(iterable):
     return reduce(lambda sum, element: sum + 1, iterable, 0)
@@ -74,7 +78,9 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         self.delegate = FilesTableDelegate()
         self.documentView.setItemDelegate(self.delegate)
         self.actionStayOnTop.changed.connect(self.stayOnTopChanged)
-        
+    
+    def displayErrorMessage(self, msg):
+        QMessageBox.critical(self, "Fehler", str(msg))    
         
     def stayOnTopChanged(self):
         ontop = self.actionStayOnTop.isChecked()
@@ -378,13 +384,13 @@ class ArchivTableModel(QAbstractTableModel):
                                     if errorSlot:
                                         errorSlot.emit(err)
                                     else:
-                                        displayErrorMessage(err)
+                                        self._av.displayErrorMessage(err)
                             else:
                                 err = "%s: Fehler beim Ausführen des Kommandos: '%s'" % (file['beschreibung'], command)
                                 if errorSlot:
                                     errorSlot.emit(err)
                                 else:
-                                    displayErrorMessage(err)
+                                    self._av.displayErrorMessage(err)
                     elif name == "message.eml":
                         # eArztbrief
                         eml = email.message_from_bytes(content)
@@ -403,17 +409,24 @@ class ArchivTableModel(QAbstractTableModel):
                             if errorSlot:
                                 errorSlot.emit(err)
                             else:
-                                displayErrorMessage(err)
+                                self._av.displayErrorMessage(err)
                     else:
                         try:
-                            merger.append(io.BytesIO(img2pdf.convert(content)))
-                            appended = True
+                            if content[0:4] == bytes.fromhex('FFD8FFE0'):
+                                img = Image.fromarray(pylibjpeg.decode(content))
+                                outbuffer = io.BytesIO()
+                                img.save(outbuffer, 'PDF')
+                                merger.append(outbuffer)
+                                appended = True
+                            else:
+                                merger.append(io.BytesIO(img2pdf.convert(content)))
+                                appended = True
                         except Exception as e:
                             err = "%s: Dateiinhalt '%s' ist kein unterstützter Dateityp -> wird nicht an PDF angehängt (%s)" % (file["beschreibung"], name, e)
                             if errorSlot:
                                 errorSlot.emit(err)
                             else:
-                                displayErrorMessage(err)
+                                self._av.displayErrorMessage(err)
                 
                 if appended:
                     try:
@@ -423,7 +436,7 @@ class ArchivTableModel(QAbstractTableModel):
                         if errorSlot:
                             errorSlot.emit(err)
                         else:
-                            displayErrorMessage(err)
+                            self._av.displayErrorMessage(err)
                 else:
                     filename = None
                     
