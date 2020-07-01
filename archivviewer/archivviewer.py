@@ -379,30 +379,37 @@ class ArchivTableModel(QAbstractTableModel):
                         merger.append(io.BytesIO(content))
                         appended = True
                     elif content[0:5] == b'{\\rtf' or (content[0:4] == bytes.fromhex('504B0304') and extension in loextensions):
-                        with tempdir() as tmpdir:
-                            tmpfile = os.sep.join([tmpdir, "temp" + extension])
-                            pdffile = tmpdir + os.sep + "temp.pdf"
-                            with open(tmpfile, "wb") as f:
-                                f.write(content)
-                            command = '"'+" ".join(['"'+self._librepath+'"', "--convert-to pdf", "--outdir", '"'+tmpdir+'"', '"'+tmpfile+'"'])+'"'
-                            if os.system(command) == 0:
-                                try:
-                                    with open(pdffile, "rb") as f:
-                                        merger.append(io.BytesIO(f.read()))
-                                        
-                                    appended = True
-                                except:
-                                    err = "%s: Fehler beim Öffnen der konvertierten PDF-Datei '%s' (konvertiert aus '%s')" % (file['beschreibung'], pdffile, tmpfile)
+                        if self._librepath is not None:
+                            with tempdir() as tmpdir:
+                                tmpfile = os.sep.join([tmpdir, "temp" + extension])
+                                pdffile = tmpdir + os.sep + "temp.pdf"
+                                with open(tmpfile, "wb") as f:
+                                    f.write(content)
+                                command = '"'+" ".join(['"'+self._librepath+'"', "--convert-to pdf", "--outdir", '"'+tmpdir+'"', '"'+tmpfile+'"'])+'"'
+                                if os.system(command) == 0:
+                                    try:
+                                        with open(pdffile, "rb") as f:
+                                            merger.append(io.BytesIO(f.read()))
+                                            
+                                        appended = True
+                                    except:
+                                        err = "%s: Fehler beim Öffnen der konvertierten PDF-Datei '%s' (konvertiert aus '%s')" % (file['beschreibung'], pdffile, tmpfile)
+                                        if errorSlot:
+                                            errorSlot.emit(err)
+                                        else:
+                                            collectedErrors.append(err)
+                                else:
+                                    err = "%s: Fehler beim Ausführen des Kommandos: '%s'" % (file['beschreibung'], command)
                                     if errorSlot:
                                         errorSlot.emit(err)
                                     else:
                                         collectedErrors.append(err)
+                        else:
+                            err = "%s: Die Konvertierung nach PDF ist nicht möglich, da keine LibreOffice-Installation gefunden wurde"
+                            if errorSlot:
+                                errorSlot.emit(err)
                             else:
-                                err = "%s: Fehler beim Ausführen des Kommandos: '%s'" % (file['beschreibung'], command)
-                                if errorSlot:
-                                    errorSlot.emit(err)
-                                else:
-                                    collectedErrors.append(err)
+                                collectedErrors.append(err)
                     elif name == "message.eml":
                         # eArztbrief
                         eml = email.message_from_bytes(content)
@@ -682,7 +689,13 @@ def main():
     
     defaultDbUser = "sysdba"
     defaultDbPassword = "masterkey" 
-    defaultLibrePath = "C:\Program Files\LibreOffice\program\soffice.exe"
+    try:
+        sokey = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 'SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\soffice.exe')
+        defaultLibrePath = winreg.QueryValueEx(sokey, '')[0]
+        LOGGER.debug("LibreOffice soffice.exe found in '{}'".format(defaultLibrePath))
+    except OSError as e:
+        LOGGER.debug('Failed to open soffice.exe-Key: {}'.format(e))
+        defaultLibrePath = None
 
     for cfg in [conffile2]:
         try:
