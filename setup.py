@@ -24,7 +24,7 @@ setup(
     install_requires=[
         "lhafile >= 0.2.2",
         "PyPDF2 >= 1.26.0",
-        "pillow <= 6.2.1",
+        "pillow",
         "img2pdf >= 0.3.6",
         "PyQt5 >= 5.15.0",
         "watchdog >= 0.10.2",
