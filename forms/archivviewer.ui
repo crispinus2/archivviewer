@@ -252,7 +252,7 @@
      <x>0</x>
      <y>0</y>
      <width>827</width>
-     <height>21</height>
+     <height>30</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu_Datei">
@@ -261,6 +261,7 @@
     </property>
     <addaction name="actionShowPDFAfterExport"/>
     <addaction name="actionUseImg2pdf"/>
+    <addaction name="actionShowRemovedItems"/>
     <addaction name="separator"/>
     <addaction name="action_quit"/>
    </widget>
@@ -307,7 +308,7 @@
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>PDF-Dokument nach Export anzeigen</string>
+    <string>&amp;PDF-Dokument nach Export anzeigen</string>
    </property>
   </action>
   <action name="actionUseImg2pdf">
@@ -315,7 +316,15 @@
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>Nutze img2pdf</string>
+    <string>&amp;Nutze img2pdf</string>
+   </property>
+  </action>
+  <action name="actionShowRemovedItems">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Zeige gelöschte Einträge</string>
    </property>
   </action>
  </widget>

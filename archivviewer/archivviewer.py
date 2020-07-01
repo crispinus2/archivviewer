@@ -190,6 +190,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._dataReloaded.connect(self._av.filterDescription.clear)
         self._dataReloaded.connect(self.updateLabel)
         self._av.refreshFiles.clicked.connect(lambda: self.activePatientChanged.emit(self._infos))
+        self._av.actionShowRemovedItems.changed.connect(self.showRemovedItemsChanged)
         self.activePatientChanged.connect(self.setActivePatient)
         self.exportThread = None
         self.mutex = QMutex(mode=QMutex.Recursive)
@@ -214,6 +215,12 @@ class ArchivTableModel(QAbstractTableModel):
                 #print("Leaving {}".format(msg))
                 pass
             self.mutex.unlock()
+    
+    def showRemovedItemsChanged(self):
+        self._config.setValue("showRemovedItems", self._av.actionShowRemovedItems.isChecked())
+        self.beginResetModel()
+        self.reloadData()
+        self.endResetModel()
     
     def categorySelectionChanged(self, selected, deselected):
         for idx in selected.indexes():
@@ -262,7 +269,7 @@ class ArchivTableModel(QAbstractTableModel):
         unb = infos["birthdate"]
         newinfos =  { **infos, 'birthdate': '{}.{}.{}'.format(unb[0:2], unb[2:4], unb[4:8]) }
             
-        self.reloadData(int(infos["id"]))
+        self.reloadData()
         self.endResetModel()
         self._av.refreshFiles.setEnabled(True)
         self._dataReloaded.emit()
@@ -298,7 +305,10 @@ class ArchivTableModel(QAbstractTableModel):
             
             file = self._files[index.row()]
             if col == 2:
-                return self._categoryModel.categoryById(file["category"])['name']
+                try:
+                    return self._categoryModel.categoryById(file["category"])['name']
+                except KeyError:
+                    return "(unbekannte Kategorie)"
             elif col == 3:
                 return file["beschreibung"]
         elif role == Qt.TextAlignmentRole:
@@ -327,27 +337,41 @@ class ArchivTableModel(QAbstractTableModel):
                 elif section == 3:
                     return "Beschreibung"
     
-    def reloadData(self, patnr):
-        self._application.setOverrideCursor(Qt.WaitCursor)
+    def reloadData(self):
+        patnr = None
+        try:
+            patnr = int(self._infos["id"])
+        except KeyError:
+            pass
         
-        self._unfilteredFiles = []
+        if patnr is not None:
+            self._application.setOverrideCursor(Qt.WaitCursor)
         
-        selectStm = "SELECT a.FSUROGAT, a.FTEXT, a.FEINTRAGSART, a.FZEIT, a.FDATUM FROM ARCHIV a WHERE a.FPATNR = ? AND a.FEINTRAGSART > 0 ORDER BY a.FDATUM DESC, a.FZEIT DESC"
-        cur = self._con.cursor()
-        cur.execute(selectStm, (patnr,))
-        
-        for (surogat, beschreibung, eintragsart, zeit, datum) in cur:
-            self._unfilteredFiles.append({
-                'id': surogat,
-                'datum': self._startDate + timedelta(days = datum, seconds = zeit),
-                'beschreibung': beschreibung,
-                'category': eintragsart
-            })
-        
-        del cur
-        self._applyFilters()
-        
-        self._application.restoreOverrideCursor()
+            self._unfilteredFiles = []
+            
+            
+            
+            stmParts = [ "SELECT a.FSUROGAT, a.FTEXT, a.FEINTRAGSART, a.FZEIT, a.FDATUM FROM ARCHIV a WHERE" ]
+            if not self._config.getValue("showRemovedItems", False):
+                stmParts.append("EXISTS (SELECT 1 FROM LTAG l WHERE a.FSUROGAT = l.FEINTRAGSNR AND a.FEINTRAGSART = l.FEINTRAGSART) AND")
+            stmParts.append("a.FPATNR = ? AND a.FEINTRAGSART > 0 ORDER BY a.FDATUM DESC, a.FZEIT DESC")
+            
+            selectStm = ' '.join(stmParts)
+            cur = self._con.cursor()
+            cur.execute(selectStm, (patnr,))
+            
+            for (surogat, beschreibung, eintragsart, zeit, datum) in cur:
+                self._unfilteredFiles.append({
+                    'id': surogat,
+                    'datum': self._startDate + timedelta(days = datum, seconds = zeit),
+                    'beschreibung': beschreibung,
+                    'category': eintragsart
+                })
+            
+            del cur
+            self._applyFilters()
+            
+            self._application.restoreOverrideCursor()
     
     def generateFile(self, file, errorSlot = None):
         filename = self._tmpdir + os.sep + '{}.pdf'.format(file["id"])
@@ -755,6 +779,7 @@ def main():
         av.documentView.setModel(tm)
         av.actionStayOnTop.setChecked(config.getValue('stayontop', False))
         av.actionShowPDFAfterExport.setChecked(config.getValue('showPDFAfterExport', False))
+        av.actionShowRemovedItems.setChecked(config.getValue("showRemovedItems", False))
         av.actionUseImg2pdf.setChecked(config.getValue('useImg2pdf', True))
         if config.getValue('stayontop', False):
             av.setWindowFlags(av.windowFlags() | Qt.WindowStaysOnTopHint)
