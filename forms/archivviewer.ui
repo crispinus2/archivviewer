@@ -252,7 +252,7 @@
      <x>0</x>
      <y>0</y>
      <width>827</width>
-     <height>30</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menu_Datei">
@@ -261,8 +261,8 @@
     </property>
     <addaction name="actionShowPDFAfterExport"/>
     <addaction name="actionUseImg2pdf"/>
-    <addaction name="actionShowRemovedItems"/>
     <addaction name="actionUseGimpForTiff"/>
+    <addaction name="actionShowRemovedItems"/>
     <addaction name="separator"/>
     <addaction name="action_quit"/>
    </widget>
