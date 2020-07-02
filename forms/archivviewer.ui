@@ -262,6 +262,7 @@
     <addaction name="actionShowPDFAfterExport"/>
     <addaction name="actionUseImg2pdf"/>
     <addaction name="actionShowRemovedItems"/>
+    <addaction name="actionUseGimpForTiff"/>
     <addaction name="separator"/>
     <addaction name="action_quit"/>
    </widget>
@@ -325,6 +326,14 @@
    </property>
    <property name="text">
     <string>Zeige gelöschte Einträge</string>
+   </property>
+  </action>
+  <action name="actionUseGimpForTiff">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Nutze GIMP für TIFF-Konvertierung</string>
    </property>
   </action>
  </widget>

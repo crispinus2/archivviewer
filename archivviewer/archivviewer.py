@@ -1,6 +1,7 @@
 # Archivviewer.py
 
 import sys, codecs, os, fdb, json, tempfile, shutil, subprocess, io, winreg, configparser, email, logging
+from subprocess import PIPE
 from datetime import datetime, timedelta
 from collections import OrderedDict
 from contextlib import contextmanager
@@ -80,6 +81,7 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         self.actionStayOnTop.changed.connect(self.stayOnTopChanged)
         self.actionShowPDFAfterExport.changed.connect(self.showPDFAfterExportChanged)
         self.actionUseImg2pdf.changed.connect(self.useImg2pdfChanged)
+        self.actionUseGimpForTiff.changed.connect(self.useGimpForTiffChanged)
     
     def displayErrorMessage(self, msg):
         QMessageBox.critical(self, "Fehler", str(msg))    
@@ -100,6 +102,10 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
     def useImg2pdfChanged(self):
         use = self.actionUseImg2pdf.isChecked()
         self._config.setValue('useImg2pdf', use)
+    
+    def useGimpForTiffChanged(self):
+        use = self.actionUseGimpForTiff.isChecked()
+        self._config.setValue('useGimpForTiff', use)
     
     def event(self, evt):
         ontop = self._config.getValue('stayontop')
@@ -170,7 +176,7 @@ class ArchivTableModel(QAbstractTableModel):
     _dataReloaded = pyqtSignal()
     activePatientChanged = pyqtSignal(dict)
 
-    def __init__(self, con, tmpdir, librepath, mainwindow, application, categoryModel):
+    def __init__(self, con, tmpdir, librepath, mainwindow, application, categoryModel, gimppath):
         super(ArchivTableModel, self).__init__()
         self._unfilteredFiles = []
         self._files = []
@@ -183,6 +189,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._infos = {}
         self._exportErrors = []
         self._categoryModel = categoryModel
+        self._gimppath = gimppath
         self._categoryFilter = set()
         self._av.categoryList.selectionModel().selectionChanged.connect(self.categorySelectionChanged)
         self._av.filterDescription.textEdited.connect(self.filterTextChanged)
@@ -396,6 +403,9 @@ class ArchivTableModel(QAbstractTableModel):
                 appended = False
                 loextensions = ('.odt', '.ods')
                 
+                attcounter = 0
+                cleanupfiles = []
+                
                 for name in lf.namelist():
                     content = lf.read(name)
                     _, extension = os.path.splitext(name)
@@ -461,6 +471,23 @@ class ArchivTableModel(QAbstractTableModel):
                                 img.save(outbuffer, 'PDF')
                                 merger.append(outbuffer)
                                 appended = True
+                            elif self._gimppath is not None and content[0:3] == b'II*' and self._config.getValue('useGimpForTiff', False):                                
+                                LOGGER.debug("{}: {}: Export via GIMP unter '{}'".format(file["beschreibung"], name, self._gimppath))
+                                tiffile = os.sep.join([self._tmpdir, '{}.{}.tif'.format(file["id"], attcounter)])
+                                outfile = os.sep.join([self._tmpdir, '{}.{}.pdf'.format(file["id"], attcounter)])
+                                cleanupfiles.append(tiffile)
+                                cleanupfiles.append(outfile)
+                                with open(tiffile, 'wb') as f:
+                                    f.write(content)
+                                batchscript = '(let* ((image (car (gimp-file-load RUN-NONINTERACTIVE "{infile}" "{infile}")))(drawable (car (gimp-image-get-active-layer image))))\
+                                    (gimp-file-save RUN-NONINTERACTIVE image drawable "{outfile}" "{outfile}")(gimp-image-delete image) (gimp-quit 0))'.format(infile=tiffile.replace('\\', '\\\\'), outfile=outfile.replace('\\', '\\\\'))
+                                gimp_path = self._gimppath
+                                result = subprocess.run([gimp_path, '-i', '-b', batchscript], check=True, stdout=PIPE, stderr=PIPE)
+                                if result.stdout is not None or result.stderr is not None:
+                                    LOGGER.debug("GIMP output: {} {}".format(result.stdout, result.stderr))
+                                merger.append(outfile)
+                                appended = True
+                                attcounter += 1
                             elif self._config.getValue('useImg2pdf', True):
                                 LOGGER.debug("Using img2pdf for file conversion")
                                 merger.append(io.BytesIO(img2pdf.convert(content)))
@@ -510,6 +537,13 @@ class ArchivTableModel(QAbstractTableModel):
                 except:
                     pass
                 ios.close()
+                
+                for f in cleanupfiles:
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+                
         return filename
     
     def displayFile(self, rowIndex):
@@ -720,6 +754,18 @@ def main():
     except OSError as e:
         LOGGER.debug('Failed to open soffice.exe-Key: {}'.format(e))
         defaultLibrePath = None
+        
+    gimppath = None
+    try:
+        try:
+            gimpkey = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\GIMP-2_is1', 0, winreg.KEY_READ | winreg.KEY_WOW64_32KEY)
+        except OSError as e:
+            gimpkey = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\GIMP-2_is1', 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+        gimppath = winreg.QueryValueEx(gimpkey, 'DisplayIcon')[0]
+        LOGGER.debug("GIMP executable found in '{}'".format(gimppath))
+    except OSError as e:
+        LOGGER.debug('Failed to open GIMP-Key: {}'.format(e))
+        gimppath = None
 
     for cfg in [conffile2]:
         try:
@@ -734,6 +780,8 @@ def main():
                     defaultLibrePath = conf["libreoffice"]
                 if "clientlib" in conf:
                     defaultClientLib = conf["clientlib"]
+                if "gimppath" in conf:
+                    gimppath = conf["gimppath"]
             break
         except Exception as e:
             LOGGER.info("Failed to load config: %s." % (e))
@@ -774,13 +822,16 @@ def main():
             displayErrorMessage("Fehler beim Laden der Kategorien: {}".format(e))
             sys.exit()
         av.categoryList.setModel(cm)
-        tm = ArchivTableModel(con, myTemp, defaultLibrePath, av, app, cm)
+        tm = ArchivTableModel(con, myTemp, defaultLibrePath, av, app, cm, gimppath)
         av.documentView.doubleClicked.connect(lambda: tableDoubleClicked(av.documentView, tm))
         av.documentView.setModel(tm)
         av.actionStayOnTop.setChecked(config.getValue('stayontop', False))
         av.actionShowPDFAfterExport.setChecked(config.getValue('showPDFAfterExport', False))
         av.actionShowRemovedItems.setChecked(config.getValue("showRemovedItems", False))
         av.actionUseImg2pdf.setChecked(config.getValue('useImg2pdf', True))
+        av.actionUseGimpForTiff.setEnabled(gimppath is not None)
+        if av.actionUseGimpForTiff.isEnabled():
+            av.actionUseGimpForTiff.setChecked(config.getValue('useGimpForTiff', False))
         if config.getValue('stayontop', False):
             av.setWindowFlags(av.windowFlags() | Qt.WindowStaysOnTopHint)
         av.exportPdf.clicked.connect(lambda: exportSelectionAsPdf(av.documentView, tm))
