@@ -1,0 +1,1 @@
+pyinstaller -w --add-binary archivviewer/icon128.png;archivviewer --icon resource/icon.ico --hidden-import libjpeg --hidden-import pylibjpeg ArchivViewer.py
