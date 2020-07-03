@@ -9,7 +9,7 @@ from pathlib import Path
 from lhafile import LhaFile
 from PyPDF2 import PdfFileMerger
 import img2pdf
-import pylibjpeg
+import libjpeg
 from PIL import Image, ImageFile
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog, QStyle
 from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QMutex, QTranslator, QLocale, QLibraryInfo, QEvent, QSettings
@@ -18,7 +18,6 @@ from PyQt5.QtWinExtras import QWinTaskbarProgress, QWinTaskbarButton
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from functools import reduce
-
 from archivviewer.forms import ArchivviewerUi
 from .configreader import ConfigReader
 from .CategoryModel import CategoryModel
@@ -466,7 +465,8 @@ class ArchivTableModel(QAbstractTableModel):
                     else:
                         try:
                             if content[0:4] == bytes.fromhex('FFD8FFE0'):
-                                img = Image.fromarray(pylibjpeg.decode(content))
+                                LOGGER.debug("{}: {}: Export via libjpeg".format(file["beschreibung"], name))
+                                img = Image.fromarray(libjpeg.decode(content))
                                 outbuffer = io.BytesIO()
                                 img.save(outbuffer, 'PDF')
                                 merger.append(outbuffer)
@@ -583,7 +583,7 @@ class ArchivTableModel(QAbstractTableModel):
         return counter
     
     def updateProgress(self, value):
-        self._av.exportProgress.setFormat('%d von %d' % (value, self._av.exportProgress.maximum()))
+        self._av.exportProgress.setFormat('%d von %d Dokumenten' % (value, self._av.exportProgress.maximum()))
         self._av.exportProgress.setValue(value)
         self._av.taskbar_progress.setValue(value)
         
