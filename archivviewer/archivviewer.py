@@ -480,7 +480,7 @@ class ArchivTableModel(QAbstractTableModel):
                                 with open(tiffile, 'wb') as f:
                                     f.write(content)
                                 batchscript = '(let* ((image (car (gimp-file-load RUN-NONINTERACTIVE "{infile}" "{infile}")))(drawable (car (gimp-image-get-active-layer image))))\
-                                    (gimp-file-save RUN-NONINTERACTIVE image drawable "{outfile}" "{outfile}")(gimp-image-delete image) (gimp-quit 0))'.format(infile=tiffile.replace('\\', '\\\\'), outfile=outfile.replace('\\', '\\\\'))
+                                    (file-pdf-save2 RUN-NONINTERACTIVE image drawable "{outfile}" "{outfile}" FALSE TRUE TRUE TRUE FALSE)(gimp-image-delete image) (gimp-quit 0))'.format(infile=tiffile.replace('\\', '\\\\'), outfile=outfile.replace('\\', '\\\\'))
                                 gimp_path = self._gimppath
                                 result = subprocess.run([gimp_path, '-i', '-b', batchscript], check=True, stdout=PIPE, stderr=PIPE)
                                 if result.stdout is not None or result.stderr is not None:
