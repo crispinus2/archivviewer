@@ -198,12 +198,15 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.actionShowRemovedItems.changed.connect(self.showRemovedItemsChanged)
         self.activePatientChanged.connect(self.setActivePatient)
         self.exportThread = None
+        self.generateFileThread = None
         self.mutex = QMutex(mode=QMutex.Recursive)
         
     
     def __del__(self):
         if self.exportThread:
             self.exportThread.wait()
+        if self.generateFileThread:
+            self.generateFileThread.wait()
     
     @contextmanager
     def lock(self, msg=None):
@@ -425,7 +428,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.exportFileProgress.setValue(value)
         self._av.exportProgress.setFormat('%d von %d Unterdokumenten' % (value, self._av.exportFileProgress.maximum()))
     
-    def generateFileComplete(self):
+    def generateFileComplete(self, filename):
         self._av.exportFileProgress.setFormat('')
         self._av.exportFileProgress.setEnabled(False)
     

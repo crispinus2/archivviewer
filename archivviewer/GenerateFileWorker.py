@@ -3,7 +3,7 @@
 class GenerateFileWorker(QObject):
     initGenerate = pyqtSignal(int)
     progress = pyqtSignal()
-    completed = pyqtSignal()
+    completed = pyqtSignal(str)
     errors = pyqtSignal()
     
     def __init__(self, tmpdir, file, parent = None):
@@ -39,8 +39,10 @@ class GenerateFileWorker(QObject):
                 
                 attcounter = 0
                 cleanupfiles = []
+                self.initGenerate.emit(len(lf.namelist()))
                 
                 for name in lf.namelist():
+                    self.progress.emit()
                     content = lf.read(name)
                     _, extension = os.path.splitext(name)
                     if content[0:5] == b'%PDF-':                  
@@ -179,4 +181,4 @@ class GenerateFileWorker(QObject):
                     except:
                         pass
                 
-        return filename
+        self.completed.emit(filename)
