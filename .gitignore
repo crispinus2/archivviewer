@@ -4,3 +4,4 @@
 /archivviewer/forms/*_ui.py
 __pycache__
 *.egg-info
+Thumbs.db
