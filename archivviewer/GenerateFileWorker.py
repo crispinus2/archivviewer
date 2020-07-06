@@ -3,8 +3,9 @@
 class GenerateFileWorker(QObject):
     initGenerate = pyqtSignal(int)
     progress = pyqtSignal()
-    completed = pyqtSignal(str)
+    completed = pyqtSignal(str, dict)
     errors = pyqtSignal()
+    kill = pyqtSignal()
     
     def __init__(self, tmpdir, file, parent = None):
         super(GenerateFileThread, self).__init__(parent)
@@ -181,4 +182,5 @@ class GenerateFileWorker(QObject):
                     except:
                         pass
                 
-        self.completed.emit(filename)
+        self.completed.emit(filename, file)
+        self.kill.emit()

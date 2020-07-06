@@ -186,6 +186,12 @@ class ArchivTableModel(QAbstractTableModel):
         self._application = application
         self._infos = {}
         self._exportErrors = []
+        self._exportMerger = None
+        self._exportFiles = []
+        self._exportDestination = None
+        self._exportFailed = 0
+        self._exportSuccessful = 0
+        self._generateFileWorker = None
         self._categoryModel = categoryModel
         self._gimppath = gimppath
         self._categoryFilter = set()
@@ -389,33 +395,38 @@ class ArchivTableModel(QAbstractTableModel):
         if filename is not None:
             subprocess.run(['start', filename], shell=True)
     
-    def exportAsPdfThread(self, thread, filelist, destination):       
+    def exportNextFile(self):       
         try:
-            merger = PdfFileMerger()
-            counter = 0
-            failed = 0
-            for file in filelist:
-                counter += 1
-                thread.progress.emit(counter)
-                
-                filename = self.generateFile(file, errorSlot = thread.error)
-                if filename is None:
-                    failed += 1
-                else:
-                    bmtext = " ".join([file["beschreibung"], file["datum"].strftime('%d.%m.%Y %H:%M')])
-                    merger.append(filename, bookmark=bmtext)
+            fil = self._exportFiles.popleft()
+            self._exportSuccessful += 1
+            if self._exportMerger is not None:
+                self.updateProgress(self._exportSuccessful)
+            self._generateFileWorker = GenerateFileWorker(self._tmpdir, fil)
+            self.generateFileThread = QThread()
+            self._generateFileWorker.moveToThread(self.generateFileThread)
+            self._generateFileWorker.kill.connect(self.generateFileThread.quit)
+            self._generateFileWorker.progress.connect(self.generateFileProgress)
+            self._generateFileWorker.completed.connect(self.generateFileComplete)
+            self._generateFileWorker.errors.connect(self.handleError)
+            self._generateFileWorker.initGenerate.connect(self.generateFileStarted)
+            self.generateFileThread.started.connect(self._generateFileWorker.work)
+            self.generateFileThread.start()
+        except IndexError:
+            self.generateFileThread = None
+            self._generateFileWorker = None
             
-            if failed < counter:
-                merger.write(destination)
-            merger.close()
-        except IOError as e:
-            failed = counter
-            thread.error.emit("Fehler beim Schreiben der PDF-Datei: {}".format(e))
-            
-        thread.progress.emit(0)
-        thread.completed.emit(counter, failed, destination)
-        
-        return counter
+            if self._exportMerger is not None:
+                try:
+                    if self._exportFailed < self._exportSuccessful:
+                        self._exportMerger.write(self._exportDestination)
+                    self._exportMerger.close()
+                except IOError as e:
+                    self._exportFailed = self._exportSuccessful
+                    self.handleError("Fehler beim Schreiben der PDF-Datei: {}".format(e))
+                finally:
+                    self._exportMerger = None
+                    self.updateProgress(0)
+                    self.exportCompleted()
         
     def generateFileStarted(self, maxFiles):
         self._av.exportFileProgress.setRange(0, maxFiles)
@@ -428,16 +439,31 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.exportFileProgress.setValue(value)
         self._av.exportProgress.setFormat('%d von %d Unterdokumenten' % (value, self._av.exportFileProgress.maximum()))
     
-    def generateFileComplete(self, filename):
+    def generateFileComplete(self, filename, fileinfo):
+        if self._exportMerger is not None:
+            if filename is None:
+                self._exportFailed += 1
+            else:
+                bmtext = " ".join([fileinfo["beschreibung"], fileinfo["datum"].strftime('%d.%m.%Y %H:%M')])
+                merger.append(filename, bookmark=bmtext)
+        
         self._av.exportFileProgress.setFormat('')
         self._av.exportFileProgress.setEnabled(False)
+        
+        self.exportNextFile()
     
     def updateProgress(self, value):
         self._av.exportProgress.setFormat('%d von %d Dokumenten' % (value, self._av.exportProgress.maximum()))
         self._av.exportProgress.setValue(value)
         self._av.taskbar_progress.setValue(value)
         
-    def exportCompleted(self, counter, failed, destination):
+    def exportCompleted(self):
+        counter = self._exportSuccessful
+        failed = self._exportFailed
+        destination = self._exportDestination
+        self._exportDestination = None
+        self._exportSuccessful = 0
+        self._exportFailed = 0
         self._application.restoreOverrideCursor()
         self._av.exportProgress.setFormat('')
         self._av.exportProgress.setEnabled(False)
@@ -489,7 +515,12 @@ class ArchivTableModel(QAbstractTableModel):
             except:
                 pass
             self._application.setOverrideCursor(Qt.WaitCursor)
-            self._exportErrors = []    
+            self._exportErrors = []  
+            self._exportFiles = collections.deque(files)
+            self._exportDestination = destination
+            self._exportMerger = PdfFileMerger()
+            self._exportFailed = 0
+            self._exportSuccessful = 0
             self._av.exportPdf.setEnabled(False)
             self._av.documentView.setEnabled(False)
             self._av.categoryList.setEnabled(False)
