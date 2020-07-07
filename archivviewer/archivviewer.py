@@ -4,13 +4,10 @@ import sys, codecs, os, fdb, json, tempfile, shutil, subprocess, io, winreg, con
 from subprocess import PIPE
 from datetime import datetime, timedelta
 from collections import OrderedDict
+import collections
 from contextlib import contextmanager
 from pathlib import Path
-from lhafile import LhaFile
 from PyPDF2 import PdfFileMerger
-import img2pdf
-import libjpeg
-from PIL import Image, ImageFile
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog, QStyle
 from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QMutex, QTranslator, QLocale, QLibraryInfo, QEvent, QSettings
 from PyQt5.QtGui import QColor, QBrush, QIcon
@@ -22,42 +19,12 @@ from archivviewer.forms import ArchivviewerUi
 from .configreader import ConfigReader
 from .CategoryModel import CategoryModel
 from .FilesTableDelegate import FilesTableDelegate
+from .GenerateFileWorker import GenerateFileWorker
 
 exportThread = None
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
-
-def ilen(iterable):
-    return reduce(lambda sum, element: sum + 1, iterable, 0)
-
-def parseBlobs(blobs):
-    entries = {}
-    for blob in blobs:
-        offset = 0
-        totalLength =  int.from_bytes(blob[offset:offset+2], 'little')
-        offset += 4
-        entryCount = int.from_bytes(blob[offset:offset+2], 'little')
-        offset += 2
-        
-        while offset < len(blob):
-            entryLength = int.from_bytes(blob[offset:offset+2], 'little')
-            offset += 2
-            result = parseBlobEntry(blob[offset:offset+entryLength])
-            entries[result['categoryId']] = result['name']
-            offset += entryLength
-    
-    return OrderedDict(sorted(entries.items()))
-
-def parseBlobEntry(blob):
-    offset = 6
-    name_length = int.from_bytes(blob[offset:offset+2], 'little')
-    offset += 2
-    name = blob[offset:offset+name_length-1].decode('cp1252')
-    offset += name_length
-    catid = int.from_bytes(blob[-2:],  'little')
-    
-    return { 'name': name, 'categoryId': catid }
 
 def displayErrorMessage(msg):
     QMessageBox.critical(None, "Fehler", str(msg))
@@ -136,7 +103,6 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         except Exception as e:
             pass
         
-
 class FileChangeHandler(FileSystemEventHandler):
     def __init__(self, gdtfile, model):
         super().__init__()
@@ -152,22 +118,6 @@ class FileChangeHandler(FileSystemEventHandler):
                 
             except TypeError:
                 pass
-
-class PdfExporter(QObject):
-    progress = pyqtSignal(int)
-    completed = pyqtSignal(int, int, str)
-    error = pyqtSignal(str)
-    kill = pyqtSignal()
-
-    def __init__(self, model, filelist, destination, parent=None):
-        super(PdfExporter, self).__init__(parent)
-        self.model = model
-        self.files = filelist
-        self.destination = destination
-     
-    def work(self):
-        self.model.exportAsPdfThread(self, self.files, self.destination)
-        self.kill.emit()
 
 class ArchivTableModel(QAbstractTableModel):    
     _startDate = datetime(1890, 1, 1)
@@ -388,20 +338,18 @@ class ArchivTableModel(QAbstractTableModel):
             self._application.restoreOverrideCursor()
         
     def displayFile(self, rowIndex):
-        self._application.setOverrideCursor(Qt.WaitCursor)
-        file = self._files[rowIndex]
-        filename = self.generateFile(file)
-        self._application.restoreOverrideCursor()
-        if filename is not None:
-            subprocess.run(['start', filename], shell=True)
-    
+        self.exportAsPdf([ rowIndex ], False)
+        
     def exportNextFile(self):       
+        if self.generateFileThread is not None:
+            self.generateFileThread.quit()
+            self.generateFileThread.wait()
         try:
             fil = self._exportFiles.popleft()
             self._exportSuccessful += 1
             if self._exportMerger is not None:
                 self.updateProgress(self._exportSuccessful)
-            self._generateFileWorker = GenerateFileWorker(self._tmpdir, fil)
+            self._generateFileWorker = GenerateFileWorker(self._tmpdir, fil, self._con, self._librepath, self._gimppath)
             self.generateFileThread = QThread()
             self._generateFileWorker.moveToThread(self.generateFileThread)
             self._generateFileWorker.kill.connect(self.generateFileThread.quit)
@@ -417,27 +365,45 @@ class ArchivTableModel(QAbstractTableModel):
             
             if self._exportMerger is not None:
                 try:
+                    self._av.exportProgress.setFormat('Schreibe Exportdatei...')
                     if self._exportFailed < self._exportSuccessful:
                         self._exportMerger.write(self._exportDestination)
                     self._exportMerger.close()
                 except IOError as e:
                     self._exportFailed = self._exportSuccessful
                     self.handleError("Fehler beim Schreiben der PDF-Datei: {}".format(e))
-                finally:
-                    self._exportMerger = None
-                    self.updateProgress(0)
-                    self.exportCompleted()
+            
+            self._application.restoreOverrideCursor()
+            self._av.exportProgress.setFormat('')
+            self._av.exportProgress.setValue(0)
+            self._av.exportProgress.setEnabled(False)
+            self._av.exportPdf.setEnabled(len(self._files)>0)
+            self._av.documentView.setEnabled(True)
+            self._av.categoryList.setEnabled(True)
+            self._av.filterDescription.setEnabled(True)
+            self._av.refreshFiles.setEnabled(True)
+            self._av.taskbar_progress.hide()
+            
+            if self._exportMerger is not None:
+                self._exportMerger = None
+                self.exportCompleted()
         
     def generateFileStarted(self, maxFiles):
         self._av.exportFileProgress.setRange(0, maxFiles)
         self._av.exportFileProgress.setValue(0)
         self._av.exportFileProgress.setEnabled(True)
+        if self._exportMerger is None:
+            self._av.taskbar_progress.setRange(0, maxFiles)
+            self._av.taskbar_progress.setValue(0)
+            self._av.taskbar_progress.show()
     
     def generateFileProgress(self, value = None):
         if value is None:
-            value = self._av.exportFileProgress.value()
+            value = self._av.exportFileProgress.value() + 1
         self._av.exportFileProgress.setValue(value)
-        self._av.exportProgress.setFormat('%d von %d Unterdokumenten' % (value, self._av.exportFileProgress.maximum()))
+        self._av.exportFileProgress.setFormat('%d von %d Unterdokumenten' % (value, self._av.exportFileProgress.maximum()))
+        if self._exportMerger is None:
+            self._av.taskbar_progress.setValue(value)
     
     def generateFileComplete(self, filename, fileinfo):
         if self._exportMerger is not None:
@@ -445,11 +411,19 @@ class ArchivTableModel(QAbstractTableModel):
                 self._exportFailed += 1
             else:
                 bmtext = " ".join([fileinfo["beschreibung"], fileinfo["datum"].strftime('%d.%m.%Y %H:%M')])
-                merger.append(filename, bookmark=bmtext)
+                self._exportMerger.append(filename, bookmark=bmtext)
         
         self._av.exportFileProgress.setFormat('')
+        self._av.exportFileProgress.setValue(0)
         self._av.exportFileProgress.setEnabled(False)
         
+        if self._exportMerger is None:
+            if filename is not None:
+                subprocess.run(['start', filename], shell=True)
+            else:
+                message = '\n'.join([ "Das Konvertieren in PDF ist fehlgeschlagen:", *self._exportErrors ])
+                QMessageBox.critical(self._av, "Export fehlgeschlagen", message)
+                
         self.exportNextFile()
     
     def updateProgress(self, value):
@@ -464,14 +438,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._exportDestination = None
         self._exportSuccessful = 0
         self._exportFailed = 0
-        self._application.restoreOverrideCursor()
-        self._av.exportProgress.setFormat('')
-        self._av.exportProgress.setEnabled(False)
-        self._av.exportPdf.setEnabled(len(self._files)>0)
-        self._av.documentView.setEnabled(True)
-        self._av.categoryList.setEnabled(True)
-        self._av.filterDescription.setEnabled(True)
-        self._av.taskbar_progress.hide()
+        
         success = False
         if failed == 0:
             QMessageBox.information(self._av, "Export abgeschlossen", "%d Dokumente wurden nach '%s' exportiert" % (counter, destination))
@@ -490,8 +457,8 @@ class ArchivTableModel(QAbstractTableModel):
     def handleError(self, msg):
         self._exportErrors.append(msg)
     
-    def exportAsPdf(self, filelist):   
-        if len(filelist) == 0:
+    def exportAsPdf(self, filelist, doExport = True):   
+        if len(filelist) == 0 and doExport:
             buttonReply = QMessageBox.question(self._av, 'PDF-Export', "Kein Dokument ausgewählt. Export aus allen angezeigten Dokumenten des Patienten erzeugen?", QMessageBox.Yes | QMessageBox.No)
             if(buttonReply == QMessageBox.Yes):
                 filelist = range(len(self._files))
@@ -503,43 +470,38 @@ class ArchivTableModel(QAbstractTableModel):
         for f in filelist:
             files.append(self._files[f])
         
-        conf = ConfigReader.get_instance()
-        outfiledir = conf.getValue('outfiledir', '')
-                    
-        outfilename = os.sep.join([outfiledir, 'Patientenakte_%d_%s_%s_%s-%s.pdf' % (int(self._infos["id"]), 
-            self._infos["name"], self._infos["surname"], self._infos["birthdate"], datetime.now().strftime('%Y%m%d%H%M%S'))])
-        destination, _ = QFileDialog.getSaveFileName(self._av, "Auswahl als PDF exportieren", outfilename, "PDF-Datei (*.pdf)")
-        if len(destination) > 0:
-            try:
-                conf.setValue('outfiledir', os.path.dirname(destination))
-            except:
-                pass
+        if doExport:
+            conf = ConfigReader.get_instance()
+            outfiledir = conf.getValue('outfiledir', '')
+                        
+            outfilename = os.sep.join([outfiledir, 'Patientenakte_%d_%s_%s_%s-%s.pdf' % (int(self._infos["id"]), 
+                self._infos["name"], self._infos["surname"], self._infos["birthdate"], datetime.now().strftime('%Y%m%d%H%M%S'))])
+            destination, _ = QFileDialog.getSaveFileName(self._av, "Auswahl als PDF exportieren", outfilename, "PDF-Datei (*.pdf)")
+        if not doExport or len(destination) > 0:
+            if doExport:
+                try:
+                    conf.setValue('outfiledir', os.path.dirname(destination))
+                except:
+                    pass
+                self._exportDestination = destination
+                self._exportMerger = PdfFileMerger()
+                self._av.exportProgress.setEnabled(True)
+                self._av.exportProgress.setRange(0, len(filelist))
+                self._av.exportProgress.setFormat('0 von %d Dokumenten' % (len(filelist)))
+                self._av.taskbar_progress.setRange(0, len(filelist))
+                self._av.taskbar_progress.setValue(0)
+                self._av.taskbar_progress.show()
             self._application.setOverrideCursor(Qt.WaitCursor)
             self._exportErrors = []  
             self._exportFiles = collections.deque(files)
-            self._exportDestination = destination
-            self._exportMerger = PdfFileMerger()
             self._exportFailed = 0
             self._exportSuccessful = 0
             self._av.exportPdf.setEnabled(False)
             self._av.documentView.setEnabled(False)
             self._av.categoryList.setEnabled(False)
             self._av.filterDescription.setEnabled(False)
-            self._av.exportProgress.setEnabled(True)
-            self._av.exportProgress.setRange(0, len(filelist))
-            self._av.exportProgress.setFormat('0 von %d' % (len(filelist)))
-            self._av.taskbar_progress.setRange(0, len(filelist))
-            self._av.taskbar_progress.setValue(0)
-            self._av.taskbar_progress.show()
-            self.pdfExporter = PdfExporter(self, files, destination)
-            self.exportThread = QThread()
-            self.pdfExporter.moveToThread(self.exportThread)
-            self.pdfExporter.kill.connect(self.exportThread.quit)
-            self.pdfExporter.progress.connect(self.updateProgress)
-            self.pdfExporter.completed.connect(self.exportCompleted)
-            self.pdfExporter.error.connect(self.handleError)
-            self.exportThread.started.connect(self.pdfExporter.work)
-            self.exportThread.start()
+            self._av.refreshFiles.setEnabled(False)
+            self.exportNextFile()
 
 def readGDT(gdtfile):
     grabinfo = {
