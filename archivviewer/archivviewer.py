@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from PyPDF2 import PdfFileMerger
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog, QStyle
-from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QMutex, QTranslator, QLocale, QLibraryInfo, QEvent, QSettings
+from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QTranslator, QLocale, QLibraryInfo, QEvent, QSettings
 from PyQt5.QtGui import QColor, QBrush, QIcon
 from PyQt5.QtWinExtras import QWinTaskbarProgress, QWinTaskbarButton
 from watchdog.observers import Observer
@@ -135,12 +135,6 @@ class ArchivTableModel(QAbstractTableModel):
         self._av = mainwindow
         self._application = application
         self._infos = {}
-        self._exportErrors = []
-        self._exportMerger = None
-        self._exportFiles = []
-        self._exportDestination = None
-        self._exportFailed = 0
-        self._exportSuccessful = 0
         self._generateFileWorker = None
         self._categoryModel = categoryModel
         self._gimppath = gimppath
@@ -152,34 +146,15 @@ class ArchivTableModel(QAbstractTableModel):
         self._dataReloaded.connect(self.updateLabel)
         self._av.refreshFiles.clicked.connect(lambda: self.activePatientChanged.emit(self._infos))
         self._av.actionShowRemovedItems.changed.connect(self.showRemovedItemsChanged)
+        self._av.cancelExport.hide()
+        self._av.cancelExport.clicked.connect(self.cancelExport)
         self.activePatientChanged.connect(self.setActivePatient)
-        self.exportThread = None
-        self.generateFileThread = None
-        self.mutex = QMutex(mode=QMutex.Recursive)
-        
+        self.generateFileThread = None      
     
     def __del__(self):
-        if self.exportThread:
-            self.exportThread.wait()
         if self.generateFileThread:
             self.generateFileThread.wait()
-    
-    @contextmanager
-    def lock(self, msg=None):
-        if msg:
-            #print("Entering {}".format(msg))
-            pass
-        self.mutex.lock()
-        try:
-            yield
-        except:
-            raise
-        finally:
-            if msg:
-                #print("Leaving {}".format(msg))
-                pass
-            self.mutex.unlock()
-    
+        
     def showRemovedItemsChanged(self):
         self._config.setValue("showRemovedItems", self._av.actionShowRemovedItems.isChecked())
         self.beginResetModel()
@@ -279,8 +254,6 @@ class ArchivTableModel(QAbstractTableModel):
             if index.column() == 2:
                 return Qt.AlignCenter
             
-                
-    
     def rowCount(self, index):
         rc = len(self._files)
         return rc
@@ -313,8 +286,6 @@ class ArchivTableModel(QAbstractTableModel):
         
             self._unfilteredFiles = []
             
-            
-            
             stmParts = [ "SELECT a.FSUROGAT, a.FTEXT, a.FEINTRAGSART, a.FZEIT, a.FDATUM FROM ARCHIV a WHERE" ]
             if not self._config.getValue("showRemovedItems", False):
                 stmParts.append("EXISTS (SELECT 1 FROM LTAG l WHERE a.FSUROGAT = l.FEINTRAGSNR AND a.FEINTRAGSART = l.FEINTRAGSART) AND")
@@ -339,56 +310,30 @@ class ArchivTableModel(QAbstractTableModel):
         
     def displayFile(self, rowIndex):
         self.exportAsPdf([ rowIndex ], False)
-        
-    def exportNextFile(self):       
-        if self.generateFileThread is not None:
-            self.generateFileThread.quit()
-            self.generateFileThread.wait()
-        try:
-            fil = self._exportFiles.popleft()
-            self._exportSuccessful += 1
-            if self._exportMerger is not None:
-                self.updateProgress(self._exportSuccessful)
-            self._generateFileWorker = GenerateFileWorker(self._tmpdir, fil, self._con, self._librepath, self._gimppath)
-            self.generateFileThread = QThread()
-            self._generateFileWorker.moveToThread(self.generateFileThread)
-            self._generateFileWorker.kill.connect(self.generateFileThread.quit)
-            self._generateFileWorker.progress.connect(self.generateFileProgress)
-            self._generateFileWorker.completed.connect(self.generateFileComplete)
-            self._generateFileWorker.errors.connect(self.handleError)
-            self._generateFileWorker.initGenerate.connect(self.generateFileStarted)
-            self.generateFileThread.started.connect(self._generateFileWorker.work)
-            self.generateFileThread.start()
-        except IndexError:
-            self.generateFileThread = None
-            self._generateFileWorker = None
-            
-            if self._exportMerger is not None:
-                try:
-                    self._av.exportProgress.setFormat('Schreibe Exportdatei...')
-                    if self._exportFailed < self._exportSuccessful:
-                        self._exportMerger.write(self._exportDestination)
-                    self._exportMerger.close()
-                except IOError as e:
-                    self._exportFailed = self._exportSuccessful
-                    self.handleError("Fehler beim Schreiben der PDF-Datei: {}".format(e))
-            
-            self._application.restoreOverrideCursor()
-            self._av.exportProgress.setFormat('')
-            self._av.exportProgress.setValue(0)
-            self._av.exportProgress.setEnabled(False)
-            self._av.exportPdf.setEnabled(len(self._files)>0)
-            self._av.documentView.setEnabled(True)
-            self._av.categoryList.setEnabled(True)
-            self._av.filterDescription.setEnabled(True)
-            self._av.refreshFiles.setEnabled(True)
-            self._av.taskbar_progress.hide()
-            
-            if self._exportMerger is not None:
-                self._exportMerger = None
-                self.exportCompleted()
-        
-    def generateFileStarted(self, maxFiles):
+          
+    def generateFileStarted(self, maxFiles, isExport):
+        self._av.exportFileProgress.setRange(0, maxFiles)
+        self._av.exportFileProgress.setValue(0)
+        self._av.exportFileProgress.setEnabled(True)
+        if not isExport:
+            self._av.taskbar_progress.setRange(0, maxFiles)
+            self._av.taskbar_progress.setValue(0)
+            self._av.taskbar_progress.show()
+    
+    def generateFileProgress(self, isExport, value = None):
+        if value is None:
+            value = self._av.exportFileProgress.value() + 1
+        self._av.exportFileProgress.setValue(value)
+        self._av.exportFileProgress.setFormat('%d von %d Unterdokumenten' % (value, self._av.exportFileProgress.maximum()))
+        if not isExport:
+            self._av.taskbar_progress.setValue(value)
+    
+    def generateFileComplete(self, filename, fileinfo, errors, isExport):
+        self._av.exportFileProgress.setFormat('')
+        self._av.exportFileProgress.setValue(0)
+        self._av.exportFileProgress.setEnabled(False)
+    
+    def exportStarted(self, maxDocuments):
         self._av.exportFileProgress.setRange(0, maxFiles)
         self._av.exportFileProgress.setValue(0)
         self._av.exportFileProgress.setEnabled(True)
@@ -396,66 +341,69 @@ class ArchivTableModel(QAbstractTableModel):
             self._av.taskbar_progress.setRange(0, maxFiles)
             self._av.taskbar_progress.setValue(0)
             self._av.taskbar_progress.show()
-    
-    def generateFileProgress(self, value = None):
+            
+    def updateProgress(self, value = None):
         if value is None:
-            value = self._av.exportFileProgress.value() + 1
-        self._av.exportFileProgress.setValue(value)
-        self._av.exportFileProgress.setFormat('%d von %d Unterdokumenten' % (value, self._av.exportFileProgress.maximum()))
-        if self._exportMerger is None:
-            self._av.taskbar_progress.setValue(value)
-    
-    def generateFileComplete(self, filename, fileinfo):
-        if self._exportMerger is not None:
-            if filename is None:
-                self._exportFailed += 1
-            else:
-                bmtext = " ".join([fileinfo["beschreibung"], fileinfo["datum"].strftime('%d.%m.%Y %H:%M')])
-                self._exportMerger.append(filename, bookmark=bmtext)
-        
-        self._av.exportFileProgress.setFormat('')
-        self._av.exportFileProgress.setValue(0)
-        self._av.exportFileProgress.setEnabled(False)
-        
-        if self._exportMerger is None:
-            if filename is not None:
-                subprocess.run(['start', filename], shell=True)
-            else:
-                message = '\n'.join([ "Das Konvertieren in PDF ist fehlgeschlagen:", *self._exportErrors ])
-                QMessageBox.critical(self._av, "Export fehlgeschlagen", message)
-                
-        self.exportNextFile()
-    
-    def updateProgress(self, value):
+            value = self._av.exportProgress.value() + 1
         self._av.exportProgress.setFormat('%d von %d Dokumenten' % (value, self._av.exportProgress.maximum()))
         self._av.exportProgress.setValue(value)
         self._av.taskbar_progress.setValue(value)
+    
+    def exportProgressStatus(self, message):
+        self._av.exportProgress.setFormat(message)
+    
+    def fileProgressStatus(self, message):
+        self._av.exportFileProgress.setFormat(message)
+    
+    def exportCancelled(self):
+        self._application.restoreOverrideCursor()
+        self._av.exportProgress.setFormat('')
+        self._av.exportProgress.setValue(0)
+        self._av.exportProgress.setEnabled(False)
+        self._av.exportPdf.show()
+        self._av.cancelExport.hide()
+        self._av.exportPdf.setEnabled(len(self._files)>0)
+        self._av.documentView.setEnabled(True)
+        self._av.categoryList.setEnabled(True)
+        self._av.filterDescription.setEnabled(True)
+        self._av.refreshFiles.setEnabled(True)
+        self._av.taskbar_progress.hide()
+        self.generateFileThread.quit()
+        self.generateFileThread.wait()
+        self.generateFileThread = None
+        self._generateFileWorker = None
+    
+    def exportCompleted(self, filename, counter, failed, errors, isExport):
+        destination = filename
         
-    def exportCompleted(self):
-        counter = self._exportSuccessful
-        failed = self._exportFailed
-        destination = self._exportDestination
-        self._exportDestination = None
-        self._exportSuccessful = 0
-        self._exportFailed = 0
+        self.exportCancelled()
         
         success = False
-        if failed == 0:
-            QMessageBox.information(self._av, "Export abgeschlossen", "%d Dokumente wurden nach '%s' exportiert" % (counter, destination))
-            success = True
-        elif failed < counter:
-            message = '\n'.join([ "%d von %d Dokumenten wurden nach '%s' exportiert\n\nWährend des Exports sind Fehler aufgetreten:\n" % (counter-failed, counter, destination), *self._exportErrors ])
-            QMessageBox.warning(self._av, "Export abgeschlossen", message)
-            success = True
+        if isExport:
+            if failed == 0:
+                QMessageBox.information(self._av, "Export abgeschlossen", "%d Dokumente wurden nach '%s' exportiert" % (counter, destination))
+                success = True
+            elif failed < counter:
+                message = '\n'.join([ "%d von %d Dokumenten wurden nach '%s' exportiert\n\nWährend des Exports sind Fehler aufgetreten:\n" % (counter-failed, counter, destination), *errors ])
+                QMessageBox.warning(self._av, "Export abgeschlossen", message)
+                success = True
+            else:
+                message = '\n'.join([ "Es konnten keine Dokumente exportiert werden:", *errors ])
+                QMessageBox.critical(self._av, "Export fehlgeschlagen", message)
         else:
-            message = '\n'.join([ "Es konnten keine Dokumente exportiert werden:", *self._exportErrors ])
-            QMessageBox.critical(self._av, "Export fehlgeschlagen", message)
-            
-        if success and self._config.getValue('showPDFAfterExport', False):
+            if filename is None:
+                message = '\n'.join([ "Das Konvertieren in PDF ist fehlgeschlagen:", *errors ])
+                QMessageBox.critical(self._av, "Konvertierung fehlgeschlagen", message)
+            else:
+                success = True
+        
+        if success and (self._config.getValue('showPDFAfterExport', False) or not isExport):
             subprocess.run(['start', destination.replace('/', '\\')], shell=True)
     
-    def handleError(self, msg):
-        self._exportErrors.append(msg)
+    def cancelExport(self):
+        self._av.cancelExport.setEnabled(False)
+        if self._generateFileWorker is not None:
+            self._generateFileWorker.cancel()
     
     def exportAsPdf(self, filelist, doExport = True):   
         if len(filelist) == 0 and doExport:
@@ -470,6 +418,7 @@ class ArchivTableModel(QAbstractTableModel):
         for f in filelist:
             files.append(self._files[f])
         
+        destination = None
         if doExport:
             conf = ConfigReader.get_instance()
             outfiledir = conf.getValue('outfiledir', '')
@@ -492,16 +441,31 @@ class ArchivTableModel(QAbstractTableModel):
                 self._av.taskbar_progress.setValue(0)
                 self._av.taskbar_progress.show()
             self._application.setOverrideCursor(Qt.WaitCursor)
-            self._exportErrors = []  
-            self._exportFiles = collections.deque(files)
-            self._exportFailed = 0
-            self._exportSuccessful = 0
-            self._av.exportPdf.setEnabled(False)
+            self._av.exportPdf.hide()
+            self._av.cancelExport.show()
+            self._av.cancelExport.setEnabled(True)
             self._av.documentView.setEnabled(False)
             self._av.categoryList.setEnabled(False)
             self._av.filterDescription.setEnabled(False)
             self._av.refreshFiles.setEnabled(False)
-            self.exportNextFile()
+            self._av.exportProgress.setEnabled(True)
+            self._av.exportFileProgress.setEnabled(True)
+            
+            self._generateFileWorker = GenerateFileWorker(self._tmpdir, files, self._con, self._librepath, self._gimppath, exportDestination = destination)
+            self.generateFileThread = QThread()
+            self._generateFileWorker.moveToThread(self.generateFileThread)
+            self._generateFileWorker.kill.connect(self.generateFileThread.quit)
+            self._generateFileWorker.progress.connect(self.generateFileProgress)
+            self._generateFileWorker.completed.connect(self.generateFileComplete)
+            self._generateFileWorker.initGenerate.connect(self.generateFileStarted)
+            self._generateFileWorker.initExport.connect(self.exportStarted)
+            self._generateFileWorker.progressExport.connect(self.updateProgress)
+            self._generateFileWorker.exportCompleted.connect(self.exportCompleted)
+            self._generateFileWorker.exportProgressStatus.connect(self.exportProgressStatus)
+            self._generateFileWorker.fileProgressStatus.connect(self.fileProgressStatus)
+            self._generateFileWorker.exportCancelled.connect(self.exportCancelled)
+            self.generateFileThread.started.connect(self._generateFileWorker.work)
+            self.generateFileThread.start()
 
 def readGDT(gdtfile):
     grabinfo = {
