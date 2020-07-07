@@ -13,9 +13,9 @@ class FilesTableDelegate(QtWidgets.QStyledItemDelegate):
         
         if not myPainter and index.column() == 2:
             normalText = option.palette.brush(QPalette.ColorGroup.Normal, QPalette.ColorRole.Text)
-            option.palette.setBrush(QPalette.ColorGroup.Normal, QPalette.ColorRole.Highlight, QBrush(QtCore.Qt.NoBrush))
+            option.palette.setBrush(QPalette.ColorGroup.All, QPalette.ColorRole.Highlight, QBrush(QtCore.Qt.NoBrush))
             if option.backgroundBrush.style() != QtCore.Qt.NoBrush:
-                option.palette.setBrush(QPalette.ColorGroup.Normal, QPalette.ColorRole.HighlightedText, normalText)
+                option.palette.setBrush(QPalette.ColorGroup.All, QPalette.ColorRole.HighlightedText, normalText)
             option.backgroundBrush = QtGui.QBrush(QtCore.Qt.NoBrush)
             
     
@@ -29,7 +29,12 @@ class FilesTableDelegate(QtWidgets.QStyledItemDelegate):
             painter.save()
             painter.setPen(QtCore.Qt.NoPen)
             if option.state & QStyle.State_Selected:
-                painter.fillRect(option.rect, option.palette.brush(QPalette.ColorGroup.Normal, QPalette.ColorRole.Highlight))
+                cg = QPalette.ColorGroup.Normal
+                if not option.state & QStyle.State_Enabled:
+                    cg = QPalette.ColorGroup.Disabled
+                elif not option.state & QStyle.State_Active:
+                    cg = QPalette.ColorGroup.Inactive
+                painter.fillRect(option.rect, option.palette.brush(cg, QPalette.ColorRole.Highlight))
             brush = index.data(QtCore.Qt.BackgroundRole)
             if brush is None:
                 brush = QBrush(QtCore.Qt.NoBrush)
