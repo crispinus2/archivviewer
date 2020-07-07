@@ -96,6 +96,7 @@ class GenerateFileWorker(QObject):
         filename = os.sep.join([self._tmpdir, '{}.pdf'.format(file["id"])])
         collectedErrors = []
         cleanupfiles = []
+        isExport = self._destination is not None
         
         try:
             if not os.path.isfile(filename):
@@ -123,7 +124,6 @@ class GenerateFileWorker(QObject):
                 
                 attcounter = 0
                 
-                isExport = self._destination is not None
                 self.initGenerate.emit(len(lf.namelist()), isExport)
                 
                 for name in lf.namelist():
