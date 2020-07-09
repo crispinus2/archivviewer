@@ -124,11 +124,12 @@ class ArchivTableModel(QAbstractTableModel):
     _dataReloaded = pyqtSignal()
     activePatientChanged = pyqtSignal(dict)
 
-    def __init__(self, con, tmpdir, librepath, mainwindow, application, categoryModel, gimppath):
+    def __init__(self, con, arccon, tmpdir, librepath, mainwindow, application, categoryModel, gimppath):
         super(ArchivTableModel, self).__init__()
         self._unfilteredFiles = []
         self._files = []
         self._con = con
+        self._arccon = arccon
         self._tmpdir = tmpdir
         self._librepath = librepath
         self._table = mainwindow.documentView
@@ -303,7 +304,31 @@ class ArchivTableModel(QAbstractTableModel):
                     'category': eintragsart
                 })
             
-            del cur
+            selectStm = "SELECT a.FSUROGAT, a.FTEXT, a.FEINTRAGSART, a.FZEIT, a.FDATUM FROM ARCHIV a WHERE a.FPATNR = ? AND a.FEINTRAGSART > 0 ORDER BY a.FDATUM DESC, a.FZEIT DESC"
+            cur = self._arccon.cursor()
+            cur.execute(selectStm, (patnr,))
+            
+            added = False
+            for (surogat, beschreibung, eintragsart, zeit, datum) in cur:
+                add = True
+                if not self._config.getValue("showRemovedItems", False):
+                    select2 = "SELECT COUNT(*) FROM LTAG l WHERE l.FEINTRAGSNR = ? AND l.FEINTRAGSART = ?"
+                    cur2 = self._con.cursor()
+                    if cur2.fetchone()[0] == 0:
+                        add = False
+                
+                if add:
+                    added = True
+                    self._unfilteredFiles.append({
+                        'id': surogat,
+                        'datum': self._startDate + timedelta(days = datum, seconds = zeit),
+                        'beschreibung': beschreibung,
+                        'category': eintragsart,
+                        'medoffarc': True
+                    })
+            
+            self._unfilteredFiles.sort(key = lambda x: x['datum'], reverse = True)
+            
             self._applyFilters()
             
             self._application.restoreOverrideCursor()
@@ -451,7 +476,7 @@ class ArchivTableModel(QAbstractTableModel):
             self._av.exportProgress.setEnabled(True)
             self._av.exportFileProgress.setEnabled(True)
             
-            self._generateFileWorker = GenerateFileWorker(self._tmpdir, files, self._con, self._librepath, self._gimppath, exportDestination = destination)
+            self._generateFileWorker = GenerateFileWorker(self._tmpdir, files, self._con, self._arccon, self._librepath, self._gimppath, exportDestination = destination)
             self.generateFileThread = QThread()
             self._generateFileWorker.moveToThread(self.generateFileThread)
             self._generateFileWorker.kill.connect(self.generateFileThread.quit)
@@ -548,6 +573,7 @@ def main():
         rstservini.read(os.sep.join([os.environ["SYSTEMROOT"], 'rstserv.ini']))
         defaultHost = rstservini["SYSTEM"]["Computername"]
         defaultDb = os.sep.join([rstservini["MED95"]["DataPath"], "MEDOFF.GDB"])
+        defaultArcDb = os.sep.join([rstservini["MED95"]["DataPath"], "MEDOFFARC.GDB"])
     except Exception as e:
         displayErrorMessage("Failed to open rstserv.ini: {}".format(e))
         sys.exit()
@@ -600,6 +626,10 @@ def main():
         con = fdb.connect(host=defaultHost, database=defaultDb, port=2013,
             user=defaultDbUser, password=defaultDbPassword, fb_library_name=defaultClientLib)
         LOGGER.debug("Connection established.")
+        LOGGER.debug("Connecting archive db '{}' at '{}', port 2013 as user {}".format(defaultArcDb, defaultHost, defaultDbUser))
+        arccon = fdb.connect(host=defaultHost, database=defaultArcDb, port=2013,
+            user=defaultDbUser, password=defaultDbPassword, fb_library_name=defaultClientLib)
+        LOGGER.debug("Connection established.")
     except Exception as e:
         displayErrorMessage('Fehler beim Verbinden mit der Datenbank: {}. Pfad zur DLL-Datei: {}'.format(e, defaultClientLib))
         sys.exit()
@@ -629,7 +659,7 @@ def main():
             displayErrorMessage("Fehler beim Laden der Kategorien: {}".format(e))
             sys.exit()
         av.categoryList.setModel(cm)
-        tm = ArchivTableModel(con, myTemp, defaultLibrePath, av, app, cm, gimppath)
+        tm = ArchivTableModel(con, arccon, myTemp, defaultLibrePath, av, app, cm, gimppath)
         av.documentView.doubleClicked.connect(lambda: tableDoubleClicked(av.documentView, tm))
         av.documentView.setModel(tm)
         av.actionStayOnTop.setChecked(config.getValue('stayontop', False))

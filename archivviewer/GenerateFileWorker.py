@@ -37,13 +37,14 @@ class GenerateFileWorker(QObject):
     exportProgressStatus = pyqtSignal(str)
     kill = pyqtSignal()
         
-    def __init__(self, tmpdir, files, con, librepath, gimppath, exportDestination = None, parent = None):
+    def __init__(self, tmpdir, files, con, arccon, librepath, gimppath, exportDestination = None, parent = None):
         super(GenerateFileWorker, self).__init__(parent)
         self._tmpdir = tmpdir
         self._files = files
         self._gimppath = gimppath
         self._librepath = librepath
         self._con = con
+        self._arccon = arccon
         self._destination = exportDestination
         self._cancelled = False
         self._config = ConfigReader.get_instance()
@@ -103,7 +104,10 @@ class GenerateFileWorker(QObject):
                 self.fileProgressStatus.emit("Hole Blob aus Datenbank...")
                 self._raiseIfCancelled()
                 selectStm = "SELECT a.FDATEI FROM ARCHIV a WHERE a.FSUROGAT = ?"
-                cur = self._con.cursor()
+                if 'medoffarc' in file:
+                    cur = self._arccon.cursor()
+                else:
+                    cur = self._con.cursor()
                 cur.execute(selectStm, (file["id"],))
                 (datei,) = cur.fetchone()
                 

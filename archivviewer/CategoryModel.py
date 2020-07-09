@@ -26,174 +26,6 @@ class ExceptionBytesIO(io.BytesIO):
         
         return res
 
-def parse_briefe_blob(blob):
-    entries = []
-    offset = 0
-    totalLength =  int.from_bytes(blob[offset:offset+2], 'little')
-    offset += 2
-    entryCountLength = int.from_bytes(blob[offset:offset+2], 'little')
-    offset += 2
-    entryCount = int.from_bytes(blob[offset:offset+entryCountLength], 'little')
-    offset += entryCountLength
-        
-    while offset < len(blob):
-        entryLength = int.from_bytes(blob[offset:offset+2], 'little')
-        offset += 2
-        result = parse_briefe_entry(blob[offset:offset+entryLength])
-        entries.append(result)
-        offset += entryLength
-    
-    return entries
-
-def parse_briefe_entry(blob):
-    stream = io.BytesIO(blob)
-    b1len = int.from_bytes(stream.read(2), 'little')
-    stream.read(b1len)
-    catid = None
-    namelen = int.from_bytes(stream.read(2), 'little')
-    name = stream.read(namelen)[:-1].decode('cp1252')
-    keycodelen = int.from_bytes(stream.read(2), 'little')
-    if keycodelen == 0:
-        stream.read(4)
-        keycodelen = int.from_bytes(stream.read(2), 'little')
-        keycode = stream.read(keycodelen)[:-1].decode('cp1252')
-        catidlen = int.from_bytes(stream.read(2), 'little')
-        catid = int.from_bytes(stream.read(catidlen), 'little')
-    else:
-        keycode = stream.read(keycodelen)[:-1].decode('cp1252')
-    if len(keycode) < 2:
-        keycode = ''.join(['q', keycode])
-        
-    return { 'categoryId': catid, 'name': name, 'keycode': keycode }
-    
-def parse_ablage_blob(blob):
-    entries = []
-    stream = io.BytesIO(blob)
-    totalLength = int.from_bytes(stream.read(2), 'little')
-    entryCountLength = int.from_bytes(stream.read(2), 'little')
-    entryCount = int.from_bytes(stream.read(entryCountLength), 'little')
-    
-    while len(entries) < entryCount:
-        entrylen = int.from_bytes(stream.read(2), 'little')
-        entries.append(parse_ablage_entry(ExceptionBytesIO(stream.read(entrylen))))
-        
-    return entries
-        
-def parse_ablage_entry(stream):
-    b1len = int.from_bytes(stream.read(2), 'little')
-    b1 = stream.read(b1len)
-    namelen = int.from_bytes(stream.read(2), 'little')
-    name = stream.read(namelen)[:-1].decode('cp1252')
-    keycodelen = int.from_bytes(stream.read(2), 'little')
-    if keycodelen == 0:
-        keycode = None
-    else:
-        keycode = stream.read(keycodelen)[:-1].decode('cp1252')
-        if len(keycode) < 2:
-            keycode = 's' + keycode
-    optionlen = int.from_bytes(stream.read(2), 'little')
-    if optionlen > 1:
-        options = stream.read(optionlen)[:-1]
-    qualitylen = int.from_bytes(stream.read(2), 'little')
-    quality = int.from_bytes(stream.read(qualitylen), 'little')
-    dpilen = int.from_bytes(stream.read(2), 'little')
-    dpi = int.from_bytes(stream.read(dpilen), 'little')
-    widthlen = int.from_bytes(stream.read(2), 'little')
-    width = struct.unpack('<d', stream.read(widthlen))[0]
-    heightlen = int.from_bytes(stream.read(2), 'little')
-    height = struct.unpack('<d', stream.read(heightlen))[0]
-    option2len = int.from_bytes(stream.read(2), 'little')
-    if option2len > 1:
-        options2 = stream.read(option2len)[:-1]
-    rembyteslen = int.from_bytes(stream.read(2), 'little')
-    rembytes = int.from_bytes(stream.read(rembyteslen, 'little'))
-    lr = None
-    for i in range(0, rembytes):
-        rlen = int.from_bytes(stream.read(2), 'little')
-        lr = stream.read(rlen)
-    
-    if keycode == None:
-        keycodelen = int.from_bytes(stream.read(2), 'little')
-        keycode = stream.read(keycodelen)[:-1].decode('cp1252')
-        catidlen = int.from_bytes(stream.read(2), 'little')
-        catid = int.from_bytes(stream.read(catidlen), 'little')
-    elif lr is not None:
-        catid = int.from_bytes(lr, 'little')
-    
-    try:
-        b6len = int.from_bytes(stream.read(2), 'little')
-        b6 = stream.read(b6len)
-        b7len = int.from_bytes(stream.read(2), 'little')
-        b7 = stream.read(b7len)
-        catidlen = int.from_bytes(stream.read(2), 'little')
-        catid = int.from_bytes(stream.read(catidlen), 'little')
-    except:
-        catid = None
-        
-    return { 'categoryId': catid, 'name': name, 'keycode': keycode, 'quality': quality, 'dpi': dpi, 'width': width, 'height': height }
-    
-def parse_kategorien_blob(blob):
-    entries = []
-    stream = io.BytesIO(blob)
-    totalLength = int.from_bytes(stream.read(2), 'little')
-    entryCountLength = int.from_bytes(stream.read(2), 'little')
-    entryCount = int.from_bytes(stream.read(entryCountLength), 'little')
-    
-    while len(entries) < entryCount:
-        entrylen = int.from_bytes(stream.read(2), 'little')
-        entries.append(parse_kategorien_entry(ExceptionBytesIO(stream.read(entrylen))))
-        
-    return entries    
-
-def parse_kategorien_entry(stream):
-    b1len = int.from_bytes(stream.read(2), 'little')
-    b1 = stream.read(b1len)
-    namelen = int.from_bytes(stream.read(2), 'little')
-    name = stream.read(namelen)[:-1].decode('cp1252')
-    keycodelen = int.from_bytes(stream.read(2), 'little')
-    if keycodelen > 1:
-        keycode = stream.read(keycodelen)[:-1].decode('cp1252')
-        if len(keycode) < 2:
-            keycode = 'x' + keycode
-    else:
-        keycode = None
-    pathlen = int.from_bytes(stream.read(2), 'little')
-    if pathlen > 1:
-        path = stream.read(pathlen)[:-1].decode('cp1252')
-    else:
-        path = None
-    b2len = int.from_bytes(stream.read(2), 'little')
-    stream.read(b2len)
-    b3len = int.from_bytes(stream.read(2), 'little')
-    stream.read(b3len)
-    b4len = int.from_bytes(stream.read(2), 'little')
-    stream.read(b4len)
-    b5len = int.from_bytes(stream.read(2), 'little')
-    stream.read(b5len)
-    b6len = int.from_bytes(stream.read(2), 'little')
-    stream.read(b6len)
-    b7len = int.from_bytes(stream.read(2), 'little')
-    stream.read(b7len)
-    b8len = int.from_bytes(stream.read(2), 'little')
-    stream.read(b8len)
-    b9len = int.from_bytes(stream.read(2), 'little')
-    stream.read(b9len)
-    extlen = int.from_bytes(stream.read(2), 'little')
-    extension = stream.read(extlen)[:-1].decode('cp1252')
-    b10len = int.from_bytes(stream.read(2), 'little')
-    stream.read(b10len)
-    b11len = int.from_bytes(stream.read(2), 'little')
-    stream.read(b11len)
-    ftypelen = int.from_bytes(stream.read(2), 'little')
-    ftype = stream.read(ftypelen)[:-1].decode('cp1252')
-    if keycode is None:
-        keycode = ftype
-    catidlen = int.from_bytes(stream.read(2), 'little')
-    catid = int.from_bytes(stream.read(catidlen), 'little')
-    
-    return { 'categoryId': catid, 'name': name, 'keycode': keycode, 'filetype': ftype, 'extension': extension, 'application': path }
-    
-
 def parse_memo_blob(blob):
     categories = {}
     offset = 0
@@ -353,7 +185,11 @@ class CategoryModel(QAbstractListModel):
             if msg is not None:
                 #print("Lock released: {}".format(msg))
                 pass
-        
+    
+    def allCategories(self):
+        with self.lock('allCategories'):
+            return self._archivecategories
+    
     def reloadCategories(self):
         cur = self._con.cursor()
         cur.execute("SELECT s.FMEMO, s.FBRIEFKATEGORIELISTE, s.FABLAGELISTE, s.FKATEGORIELISTE FROM MOSYSTEM s")
