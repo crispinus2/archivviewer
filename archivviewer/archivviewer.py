@@ -14,7 +14,6 @@ from PyQt5.QtGui import QColor, QBrush, QIcon
 from PyQt5.QtWinExtras import QWinTaskbarProgress, QWinTaskbarButton
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from functools import reduce
 from archivviewer.forms import ArchivviewerUi
 from .configreader import ConfigReader
 from .CategoryModel import CategoryModel
