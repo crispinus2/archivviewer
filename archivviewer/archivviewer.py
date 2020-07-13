@@ -21,8 +21,6 @@ from .PresetModel import PresetModel
 from .FilesTableDelegate import FilesTableDelegate
 from .GenerateFileWorker import GenerateFileWorker
 
-exportThread = None
-
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
@@ -355,6 +353,7 @@ class ArchivTableModel(QAbstractTableModel):
                 if not self._config.getValue("showRemovedItems", False):
                     select2 = "SELECT COUNT(*) FROM LTAG l WHERE l.FEINTRAGSNR = ? AND l.FEINTRAGSART = ?"
                     cur2 = self._con.cursor()
+                    cur2.execute(select2, (surogat, eintragsart))
                     if cur2.fetchone()[0] == 0:
                         add = False
                 
@@ -571,7 +570,6 @@ def tableDoubleClicked(table, model):
         model.displayFile(row)
 
 def exportSelectionAsPdf(table, model):
-    global exportThread
     
     indexes = table.selectionModel().selectedRows()
     files = []
@@ -729,8 +727,5 @@ def main():
         av.show()
         ret = app.exec_()
         observer.stop()
-        if exportThread:
-            exportThread.stop()
-            exportThread.join()
         observer.join()
     sys.exit(ret)
