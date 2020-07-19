@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from PyPDF2 import PdfFileMerger
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox, QFileDialog, QStyle
-from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QTranslator, QLocale, QLibraryInfo, QEvent, QSettings
+from PyQt5.QtCore import QAbstractTableModel, Qt, QThread, pyqtSignal, pyqtSlot, QObject, QTranslator, QLocale, QLibraryInfo, QEvent, QSettings, QItemSelectionModel, QItemSelection, QItemSelectionRange
 from PyQt5.QtGui import QColor, QBrush, QIcon
 from PyQt5.QtWinExtras import QWinTaskbarProgress, QWinTaskbarButton
 from watchdog.observers import Observer
@@ -18,6 +18,7 @@ from functools import reduce
 from archivviewer.forms import ArchivviewerUi
 from .configreader import ConfigReader
 from .CategoryModel import CategoryModel
+from .PresetModel import PresetModel
 from .FilesTableDelegate import FilesTableDelegate
 from .GenerateFileWorker import GenerateFileWorker
 
@@ -30,9 +31,10 @@ def displayErrorMessage(msg):
     QMessageBox.critical(None, "Fehler", str(msg))
 
 class ArchivViewer(QMainWindow, ArchivviewerUi):
-    def __init__(self, parent = None):
+    def __init__(self, con, parent = None):
         super(ArchivViewer, self).__init__(parent)
         self._config = ConfigReader.get_instance()
+        self._con = con
         self.taskbar_button = None
         self.taskbar_progress = None
         self.setupUi(self)
@@ -52,7 +54,19 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         self.actionShowPDFAfterExport.changed.connect(self.showPDFAfterExportChanged)
         self.actionUseImg2pdf.changed.connect(self.useImg2pdfChanged)
         self.actionUseGimpForTiff.changed.connect(self.useGimpForTiffChanged)
-    
+        self.presetModel = PresetModel(self.categoryList)
+        self.presets.model(presetModel)
+        self.clearPreset.clicked.connect(self.clearPresetClicked)
+        self.savePreset.clicked.connect(self.savePresetClicked)
+        self.presets.currentIndexChanged.connect(self.presetsIndexChanged)
+        try:
+            self.categoryListModel = CategoryModel(self._con)
+        except Exception as e:
+            displayErrorMessage("Fehler beim Laden der Kategorien: {}".format(e))
+            sys.exit()
+        self.categoryList.setModel(self.categoryListModel)
+        self.categoryListModel.dataChanged.connect(self.categoryListModelDataChanged)
+        
     def displayErrorMessage(self, msg):
         QMessageBox.critical(self, "Fehler", str(msg))    
         
@@ -64,6 +78,30 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         else:
             self.setWindowFlags(self.windowFlags() & (~Qt.WindowStaysOnTopHint))
         self.show()
+    
+    def clearPresetClicked(self):
+        self.presets.removeItem(self.presets.currentIndex())
+    
+    def savePresetClicked(self):
+        ids = [ self.categoryList().model().idAtRow(idx.row()) for idx in self.categoryList.selectionModel().selectedRows() ]
+        
+        self.presetModel.setSelectedCategories(self.presets.currentIndex(), ids)
+        
+    def presetsIndexChanged(self, idx):
+        categories = self.presetModel.categoriesAtIndex(idx)
+        selm = self.categoryList.selectionModel()
+        cmodel = self.categoryList.model()
+        catidxs = [ cmodel.createIndex(row, 0, None) for row in range(cmodel.rowCount(), None) ]
+        
+        qis = QItemSelection()
+        for cidx in catidxs:
+            if cmodel.idAtRow(cidx.row()) in categories:
+                qir = QItemSelectionRange(cidx)
+                qis.append(qir)
+        selm.select(qis, QItemSelectionModel.ClearAndSelect)
+    
+    def categoryListModelDataChanged(self, begin, end):
+        self.presetsIndexChanged(self.presetList.currentIndex())
     
     def showPDFAfterExportChanged(self):
         show = self.actionShowPDFAfterExport.isChecked()
@@ -128,7 +166,7 @@ class ArchivTableModel(QAbstractTableModel):
     _dataReloaded = pyqtSignal()
     activePatientChanged = pyqtSignal(dict)
 
-    def __init__(self, con, arccon, tmpdir, librepath, mainwindow, application, categoryModel, gimppath):
+    def __init__(self, con, arccon, tmpdir, librepath, mainwindow, application, gimppath):
         super(ArchivTableModel, self).__init__()
         self._unfilteredFiles = []
         self._files = []
@@ -141,7 +179,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._application = application
         self._infos = {}
         self._generateFileWorker = None
-        self._categoryModel = categoryModel
+        self._categoryModel = self._av.categoryListModel
         self._gimppath = gimppath
         self._categoryFilter = set()
         self._av.categoryList.selectionModel().selectionChanged.connect(self.categorySelectionChanged)
@@ -165,7 +203,7 @@ class ArchivTableModel(QAbstractTableModel):
         self.beginResetModel()
         self.reloadData()
         self.endResetModel()
-    
+        
     def categorySelectionChanged(self, selected, deselected):
         for idx in selected.indexes():
             id = self._categoryModel.idAtRow(idx.row())
@@ -656,14 +694,8 @@ def main():
         sys.exit()
         
     with tempdir() as myTemp:
-        av = ArchivViewer()
-        try:
-            cm = CategoryModel(con)
-        except Exception as e:
-            displayErrorMessage("Fehler beim Laden der Kategorien: {}".format(e))
-            sys.exit()
-        av.categoryList.setModel(cm)
-        tm = ArchivTableModel(con, arccon, myTemp, defaultLibrePath, av, app, cm, gimppath)
+        av = ArchivViewer(con)        
+        tm = ArchivTableModel(con, arccon, myTemp, defaultLibrePath, av, app, gimppath)
         av.documentView.doubleClicked.connect(lambda: tableDoubleClicked(av.documentView, tm))
         av.documentView.setModel(tm)
         av.actionStayOnTop.setChecked(config.getValue('stayontop', False))

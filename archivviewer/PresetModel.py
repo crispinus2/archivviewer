@@ -24,7 +24,14 @@ class PresetModel(QAbstractItemModel):
     def columnCount(self, _):
         return 1
     
-    def insertRows(int row, int count, _):
+    def categoriesAtIndex(self, idx):
+        return self._presets[idx]['categories']
+    
+    def setSelectedCategories(self, idx, categories):
+        self._presets[idx]['categories'] = categories
+        self._config.setValue("categoryPresets", self._presets)
+    
+    def insertRows(self, row, count):
         self.beginInsertRows()
         selcats = [ self._categoryList().model().idAtRow(idx.row()) for idx in self._categoryList.selectedIndexes() ]
             
@@ -34,6 +41,8 @@ class PresetModel(QAbstractItemModel):
         else:
             self._presets[row:row] = insert_elem
         self.endInsertRows()
+        
+        return True
     
     def data(self, index, role):
         if role == Qt.DisplayRole:
@@ -41,8 +50,18 @@ class PresetModel(QAbstractItemModel):
             if name is None:
                 return "(Unbenannt)"
             return name
+
+    def removeRows(self, row, count):
+        self.beginRemoveRows()
+        del self._presets[row:row+count]
+        self._config.setValue("categoryPresets", self._presets)
+        self.endRemoveRows()
+        
+        return True
         
     def setData(self, index, value):
         self._presets[index.row()]["name"] = value
         self._config.setValue("categoryPresets", self._presets)
         self.dataChanged.emit(index, index, [Qt.EditRole, Qt.DisplayRole])
+        
+        return True
