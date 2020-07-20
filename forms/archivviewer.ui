@@ -173,6 +173,9 @@
                 </item>
                 <item>
                  <widget class="QPushButton" name="savePreset">
+                  <property name="enabled">
+                   <bool>false</bool>
+                  </property>
                   <property name="toolTip">
                    <string>Voreinstellung speichern</string>
                   </property>
@@ -183,6 +186,9 @@
                 </item>
                 <item>
                  <widget class="QPushButton" name="clearPreset">
+                  <property name="enabled">
+                   <bool>false</bool>
+                  </property>
                   <property name="toolTip">
                    <string>Voreinstellung löschen</string>
                   </property>

@@ -52,7 +52,8 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         self.actionUseImg2pdf.changed.connect(self.useImg2pdfChanged)
         self.actionUseGimpForTiff.changed.connect(self.useGimpForTiffChanged)
         self.presetModel = PresetModel(self.categoryList)
-        self.presets.model(presetModel)
+        self.presets.setModel(self.presetModel)
+        self.presets.editTextChanged.connect(self.presetsEditTextChanged)
         self.clearPreset.clicked.connect(self.clearPresetClicked)
         self.savePreset.clicked.connect(self.savePresetClicked)
         self.presets.currentIndexChanged.connect(self.presetsIndexChanged)
@@ -77,18 +78,37 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         self.show()
     
     def clearPresetClicked(self):
-        self.presets.removeItem(self.presets.currentIndex())
-    
+        buttonReply = QMessageBox.question(self, 'Voreinstellung löschen', "Soll die aktive Voreinstellung wirklich gelöscht werden?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if(buttonReply == QMessageBox.Yes):
+            curidx = self.presets.findText(self.presets.currentText())
+            self.presets.removeItem(curidx)
+            self.presets.setCurrentIndex(0)
+        else:
+            return
+        
     def savePresetClicked(self):
-        ids = [ self.categoryList().model().idAtRow(idx.row()) for idx in self.categoryList.selectionModel().selectedRows() ]
-        
-        self.presetModel.setSelectedCategories(self.presets.currentIndex(), ids)
-        
+        curidx = self.presets.findText(self.presets.currentText())
+        if curidx != 0:
+            ids = [ self.categoryList.model().idAtRow(idx.row()) for idx in self.categoryList.selectionModel().selectedRows() ]
+            
+            if curidx > 0:
+                self.presetModel.setSelectedCategories(curidx, ids)
+            else:
+                curidx = self.presetModel.insertPreset(self.presets.currentText(), ids)
+            self.presets.setCurrentIndex(curidx)
+    
+    def presetsEditTextChanged(self, text):
+        idx = self.presets.findText(text)
+        self.savePreset.setEnabled(idx != 0 and len(text)>0)
+        self.clearPreset.setEnabled(idx > 0)
+    
     def presetsIndexChanged(self, idx):
+        self.savePreset.setEnabled(idx > 0)
+        self.clearPreset.setEnabled(idx > 0)
         categories = self.presetModel.categoriesAtIndex(idx)
         selm = self.categoryList.selectionModel()
         cmodel = self.categoryList.model()
-        catidxs = [ cmodel.createIndex(row, 0, None) for row in range(cmodel.rowCount(), None) ]
+        catidxs = [ cmodel.createIndex(row, 0, None) for row in range(cmodel.rowCount(None)) ]
         
         qis = QItemSelection()
         for cidx in catidxs:
