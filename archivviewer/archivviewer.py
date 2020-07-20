@@ -452,6 +452,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.categoryList.setEnabled(True)
         self._av.filterDescription.setEnabled(True)
         self._av.refreshFiles.setEnabled(True)
+        self._av.groupBox.setEnabled(True)
         self._av.taskbar_progress.hide()
         self.generateFileThread.quit()
         self.generateFileThread.wait()
@@ -535,6 +536,7 @@ class ArchivTableModel(QAbstractTableModel):
             self._av.refreshFiles.setEnabled(False)
             self._av.exportProgress.setEnabled(True)
             self._av.exportFileProgress.setEnabled(True)
+            self._av.groupBox.setEnabled(False)
             
             self._generateFileWorker = GenerateFileWorker(self._tmpdir, files, self._con, self._arccon, self._librepath, self._gimppath, exportDestination = destination)
             self.generateFileThread = QThread()
