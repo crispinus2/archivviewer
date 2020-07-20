@@ -476,7 +476,7 @@ class ArchivTableModel(QAbstractTableModel):
                 message = '\n'.join([ "Es konnten keine Dokumente exportiert werden:", *errors ])
                 QMessageBox.critical(self._av, "Export fehlgeschlagen", message)
         else:
-            if filename is None:
+            if filename is None or failed == 1:
                 message = '\n'.join([ "Das Konvertieren in PDF ist fehlgeschlagen:", *errors ])
                 QMessageBox.critical(self._av, "Konvertierung fehlgeschlagen", message)
             else:
@@ -624,7 +624,6 @@ def main():
         displayErrorMessage("Failed to open Medical Office registry key: {}".format(e))
         sys.exit()
         
-    conffile = os.getcwd() + os.sep + "Patientenakte.cnf"
     conffile2 = os.path.dirname(os.path.realpath(__file__)) + os.sep + "Patientenakte.cnf"
         
     try:

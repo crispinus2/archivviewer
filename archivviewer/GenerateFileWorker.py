@@ -1,6 +1,6 @@
 # GenerateFileWorker.py
 
-import io, logging, email, subprocess, os, tempfile, shutil
+import io, logging, email, subprocess, os, tempfile, shutil, sys
 from contextlib import contextmanager
 from PyQt5.QtCore import QObject, pyqtSignal
 from lhafile import LhaFile
@@ -53,7 +53,7 @@ class GenerateFileWorker(QObject):
         try:
             if self._destination is None:
                 filename, errors = self.generateFile(self._files[0])
-                self.exportCompleted.emit(filename, 1, 0 if filename is None else 1, errors, False)
+                self.exportCompleted.emit(filename, 1, 1 if filename is None else 0, errors, False)
             else:
                 failed = 0
                 counter = 0
@@ -180,14 +180,7 @@ class GenerateFileWorker(QObject):
                             collectedErrors.append(err)
                     else:
                         try:
-                            if content[0:4] == bytes.fromhex('FFD8FFE0'):
-                                LOGGER.debug("{}: {}: Export via libjpeg".format(file["beschreibung"], name))
-                                img = Image.fromarray(libjpeg.decode(content))
-                                outbuffer = io.BytesIO()
-                                img.save(outbuffer, 'PDF')
-                                merger.append(outbuffer)
-                                appended = True
-                            elif self._gimppath is not None and content[0:3] == b'II*' and self._config.getValue('useGimpForTiff', False):                                
+                            if self._gimppath is not None and content[0:3] == b'II*' and self._config.getValue('useGimpForTiff', False):                                
                                 LOGGER.debug("{}: {}: Export via GIMP unter '{}'".format(file["beschreibung"], name, self._gimppath))
                                 tiffile = os.sep.join([self._tmpdir, '{}.{}.tif'.format(file["id"], attcounter)])
                                 outfile = os.sep.join([self._tmpdir, '{}.{}.pdf'.format(file["id"], attcounter)])
@@ -204,21 +197,27 @@ class GenerateFileWorker(QObject):
                                 merger.append(outfile)
                                 appended = True
                                 attcounter += 1
-                            elif self._config.getValue('useImg2pdf', True):
-                                LOGGER.debug("Using img2pdf for file conversion")
-                                merger.append(io.BytesIO(img2pdf.convert(content)))
-                                appended = True
-                            else:
+                            elif self._config.getValue('useImg2pdf', False) or content[0:4] == bytes.fromhex('FFD8FFE0'):
                                 LOGGER.debug("Using PIL for file conversion")
                                 inbuffer = io.BytesIO(content)
-                                img = Image.open(inbuffer)
+                                try:
+                                    img = Image.open(inbuffer)
+                                    img.load()
+                                except OSError as e:
+                                    LOGGER.debug("Failed: {}. Trying libjpeg now for lossless compressed JPEG file.".format(e))
+                                    img = Image.fromarray(libjpeg.decode(content))
                                 outbuffer = io.BytesIO()
                                 img.save(outbuffer, 'PDF')
                                 merger.append(outbuffer)
                                 appended = True
                                 del inbuffer
+                            else:
+                                LOGGER.debug("Using img2pdf for file conversion")
+                                merger.append(io.BytesIO(img2pdf.convert(content)))
+                                appended = True
                         except Exception as e:
                             err = "%s: Dateiinhalt '%s' ist kein unterstützter Dateityp -> wird nicht an PDF angehängt (%s)" % (file["beschreibung"], name, e)
+                            LOGGER.debug(err)
                             collectedErrors.append(err)
                 
                 self._raiseIfCancelled()
@@ -244,15 +243,19 @@ class GenerateFileWorker(QObject):
                 except:
                     pass
                 ios.close()
-        except:
-            raise
+                
+                self.completed.emit(filename, file, collectedErrors, isExport)
+        except Exception as e:
+            LOGGER.debug("Exception on generating file: {}".format(e))
+            self.completed.emit(None, file, collectedErrors, isExport)
+            raise e
         finally:
             for f in cleanupfiles:
                 try:
                     os.unlink(f)
                 except:
                     pass
-        
-            self.completed.emit(filename, file, collectedErrors, isExport)
+            LOGGER.debug("File generation completed")
+            
         
         return (filename, collectedErrors)
