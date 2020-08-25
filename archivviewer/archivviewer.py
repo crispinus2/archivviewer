@@ -51,6 +51,8 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
         self.actionShowPDFAfterExport.changed.connect(self.showPDFAfterExportChanged)
         self.actionUseImg2pdf.changed.connect(self.useImg2pdfChanged)
         self.actionUseGimpForTiff.changed.connect(self.useGimpForTiffChanged)
+        self.actionOptimizeExport.changed.connect(self.optimizeExportChanged)
+        self.actionFitToA4.changed.connect(self.fitToA4Changed)
         self.presetModel = PresetModel(self.categoryList)
         self.presets.setModel(self.presetModel)
         self.presets.editTextChanged.connect(self.presetsEditTextChanged)
@@ -127,10 +129,17 @@ class ArchivViewer(QMainWindow, ArchivviewerUi):
     def useImg2pdfChanged(self):
         use = self.actionUseImg2pdf.isChecked()
         self._config.setValue('useImg2pdf', use)
+        
+    def optimizeExportChanged(self):
+        optimize = self.actionOptimizeExport.isChecked()
+        self._config.setValue('shrinkPDF', optimize)
     
     def useGimpForTiffChanged(self):
         use = self.actionUseGimpForTiff.isChecked()
         self._config.setValue('useGimpForTiff', use)
+    
+    def fitToA4Changed(self):
+        self._config.setValue('fitToA4', self.actionFitToA4.isChecked())
     
     def event(self, evt):
         ontop = self._config.getValue('stayontop')
@@ -183,7 +192,7 @@ class ArchivTableModel(QAbstractTableModel):
     _dataReloaded = pyqtSignal()
     activePatientChanged = pyqtSignal(dict)
 
-    def __init__(self, con, arccon, tmpdir, librepath, mainwindow, application, gimppath):
+    def __init__(self, con, arccon, tmpdir, librepath, mainwindow, application, gimppath, gspath):
         super(ArchivTableModel, self).__init__()
         self._unfilteredFiles = []
         self._files = []
@@ -208,6 +217,7 @@ class ArchivTableModel(QAbstractTableModel):
         self._av.actionShowRemovedItems.changed.connect(self.showRemovedItemsChanged)
         self._av.cancelExport.hide()
         self._av.cancelExport.clicked.connect(self.cancelExport)
+        self._gspath = gspath
         self.activePatientChanged.connect(self.setActivePatient)
         self.generateFileThread = None      
     
@@ -539,7 +549,7 @@ class ArchivTableModel(QAbstractTableModel):
             self._av.exportFileProgress.setEnabled(True)
             self._av.groupBox.setEnabled(False)
             
-            self._generateFileWorker = GenerateFileWorker(self._tmpdir, files, self._con, self._arccon, self._librepath, self._gimppath, exportDestination = destination)
+            self._generateFileWorker = GenerateFileWorker(self._tmpdir, files, self._con, self._arccon, self._librepath, self._gimppath, self._gspath, exportDestination = destination)
             self.generateFileThread = QThread()
             self._generateFileWorker.moveToThread(self.generateFileThread)
             self._generateFileWorker.kill.connect(self.generateFileThread.quit)
@@ -661,6 +671,27 @@ def main():
         LOGGER.debug('Failed to open GIMP-Key: {}'.format(e))
         gimppath = None
 
+    gspath = None
+    try:
+        try:
+            gskey = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Artifex\\GPL Ghostscript', 0, winreg.KEY_READ | winreg.KEY_WOW64_32KEY)
+        except OSError as e:
+            gskey = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Artifex\\GPL Ghostscript', 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+        try:
+            gsverkey = winreg.OpenKey(gskey, winreg.EnumKey(gskey, 0))
+            gsbasepath = os.path.join(winreg.QueryValueEx(gsverkey, '')[0], 'bin')
+            gspath = os.path.join(gsbasepath, 'gswin64c.exe')
+            if not os.path.exists(gspath):
+                gspath = os.path.join(gsbasepath, 'gswin32c.exe')
+                if not os.path.exists(gspath):
+                    raise Exception("No suitable ghostscript executable found in {}".format(gsbasepath))
+                
+            LOGGER.debug("Ghostscript version {} found in '{}'".format(winreg.EnumKey(gskey, 0), gspath))
+        except Exception as e:
+            LOGGER.debug("No usable ghostscript installation found. Continuing without shrink option: {}".format(e))
+    except OSError as e:
+        LOGGER.debug('Failed to open ghostscript key: {}'.format(e))
+
     for cfg in [conffile2]:
         try:
             LOGGER.debug("Attempting config %s" % (cfg))
@@ -676,6 +707,8 @@ def main():
                     defaultClientLib = conf["clientlib"]
                 if "gimppath" in conf:
                     gimppath = conf["gimppath"]
+                if "ghostscript" in conf:
+                    gspath = conf["ghostscript"]
             break
         except Exception as e:
             LOGGER.info("Failed to load config: %s." % (e))
@@ -718,14 +751,18 @@ def main():
         
     with tempdir() as myTemp:
         av = ArchivViewer(con)        
-        tm = ArchivTableModel(con, arccon, myTemp, defaultLibrePath, av, app, gimppath)
+        tm = ArchivTableModel(con, arccon, myTemp, defaultLibrePath, av, app, gimppath, gspath)
         av.documentView.doubleClicked.connect(lambda: tableDoubleClicked(av.documentView, tm))
         av.documentView.setModel(tm)
         av.actionStayOnTop.setChecked(config.getValue('stayontop', False))
         av.actionShowPDFAfterExport.setChecked(config.getValue('showPDFAfterExport', False))
         av.actionShowRemovedItems.setChecked(config.getValue("showRemovedItems", False))
         av.actionUseImg2pdf.setChecked(config.getValue('useImg2pdf', True))
+        av.actionOptimizeExport.setEnabled(gspath is not None)
+        if av.actionOptimizeExport.isEnabled():
+            av.actionOptimizeExport.setChecked(config.getValue('shrinkPDF', True))
         av.actionUseGimpForTiff.setEnabled(gimppath is not None)
+        av.actionFitToA4.setChecked(config.getValue('fitToA4', False))
         if av.actionUseGimpForTiff.isEnabled():
             av.actionUseGimpForTiff.setChecked(config.getValue('useGimpForTiff', False))
         if config.getValue('stayontop', False):

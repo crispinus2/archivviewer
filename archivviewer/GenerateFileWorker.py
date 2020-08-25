@@ -7,6 +7,7 @@ from lhafile import LhaFile
 import img2pdf
 import libjpeg
 from PIL import Image, ImageFile
+import PIL
 from PyPDF2 import PdfFileMerger
 from subprocess import PIPE
 from .configreader import ConfigReader
@@ -37,7 +38,7 @@ class GenerateFileWorker(QObject):
     exportProgressStatus = pyqtSignal(str)
     kill = pyqtSignal()
         
-    def __init__(self, tmpdir, files, con, arccon, librepath, gimppath, exportDestination = None, parent = None):
+    def __init__(self, tmpdir, files, con, arccon, librepath, gimppath, gspath, exportDestination = None, parent = None):
         super(GenerateFileWorker, self).__init__(parent)
         self._tmpdir = tmpdir
         self._files = files
@@ -48,6 +49,7 @@ class GenerateFileWorker(QObject):
         self._destination = exportDestination
         self._cancelled = False
         self._config = ConfigReader.get_instance()
+        self._gspath = gspath
         
     def work(self):
         try:
@@ -72,16 +74,25 @@ class GenerateFileWorker(QObject):
                         merger.append(filename, bookmark=bmtext)
                     self.progressExport.emit()
                 
+                tmpdest = self._destination
+                if self._gspath is not None and self._config.getValue("shrinkPDF", True):
+                    tmpdest = os.path.join(self._tmpdir, 'export.pdf')
+                
                 try:
                     self.exportProgressStatus.emit('Schreibe Exportdatei...')
                     if failed < counter:
-                        merger.write(self._destination)
+                        merger.write(tmpdest)
                 except IOError as e:
                     failed = counter
                     errorMessages.append("Fehler beim Schreiben der PDF-Datei: {}".format(e))
                 finally:
                     merger.close()
-                    
+                
+                if self._gspath is not None and self._config.getValue("shrinkPDF", True):
+                    self.exportProgressStatus.emit('Optimiere PDF-Datei mit Ghostscript...')
+                    result = subprocess.run([self._gspath, '-sDEVICE=pdfwrite', '-dCompatibilityLevel=1.4', '-dPDFSETTINGS=/printer',
+                        '-dNOPAUSE', '-dQUIET', '-dBATCH', '-sOutputFile={}'.format(self._destination), tmpdest], check=True, stdout=PIPE, stderr=PIPE)
+                
                 self.exportCompleted.emit(self._destination, counter, failed, errorMessages, True)
         except ExportCancelledError:
             self.exportCancelled.emit()
@@ -206,14 +217,29 @@ class GenerateFileWorker(QObject):
                                 except OSError as e:
                                     LOGGER.debug("Failed: {}. Trying libjpeg now for lossless compressed JPEG file.".format(e))
                                     img = Image.fromarray(libjpeg.decode(content))
+                                if self._config.getValue('fitToA4', False):
+                                    twidth = 2480
+                                    theight = 3508
+                                    cwidth, cheight = img.size
+                                    if cwidth > twidth or cheight > theight:
+                                        img.resize((twidth, theight), resample = PIL.Image.LANCZOS)
+                                    elif cwidth < twidth and cheight < theight:
+                                        nimg = Image.new('RGB', (twidth, theight), color = 'white')
+                                        nimg.paste(img, (round((twidth-cwidth)/2), round((theight-cheight)/2)))
+                                        img = nimg
                                 outbuffer = io.BytesIO()
-                                img.save(outbuffer, 'PDF')
+                                img.save(outbuffer, 'PDF', resolution=300)
                                 merger.append(outbuffer)
                                 appended = True
                                 del inbuffer
                             else:
                                 LOGGER.debug("Using img2pdf for file conversion")
-                                merger.append(io.BytesIO(img2pdf.convert(content)))
+                                if self._config.getValue('fitToA4', False):
+                                    a4inpt = (img2pdf.mm_to_pt(210),img2pdf.mm_to_pt(297))
+                                    layout_fun = img2pdf.get_layout_fun(a4inpt)
+                                else:
+                                    layout_fun = None
+                                merger.append(io.BytesIO(img2pdf.convert(content), layout_fun=layout_fun))
                                 appended = True
                         except Exception as e:
                             err = "%s: Dateiinhalt '%s' ist kein unterstützter Dateityp -> wird nicht an PDF angehängt (%s)" % (file["beschreibung"], name, e)
