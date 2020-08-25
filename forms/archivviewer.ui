@@ -405,6 +405,8 @@
     <addaction name="actionShowPDFAfterExport"/>
     <addaction name="actionUseImg2pdf"/>
     <addaction name="actionUseGimpForTiff"/>
+    <addaction name="actionOptimizeExport"/>
+    <addaction name="actionFitToA4"/>
     <addaction name="actionShowRemovedItems"/>
     <addaction name="separator"/>
     <addaction name="action_quit"/>
@@ -477,6 +479,22 @@
    </property>
    <property name="text">
     <string>Nutze GIMP für TIFF-Konvertierung</string>
+   </property>
+  </action>
+  <action name="actionOptimizeExport">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Exportdatei optimieren</string>
+   </property>
+  </action>
+  <action name="actionFitToA4">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Auf A4 einpassen</string>
    </property>
   </action>
  </widget>
