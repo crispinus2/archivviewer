@@ -363,29 +363,30 @@ class ArchivTableModel(QAbstractTableModel):
                     'category': eintragsart
                 })
             
-            selectStm = "SELECT a.FSUROGAT, a.FTEXT, a.FEINTRAGSART, a.FZEIT, a.FDATUM FROM ARCHIV a WHERE a.FPATNR = ? AND a.FEINTRAGSART > 0 ORDER BY a.FDATUM DESC, a.FZEIT DESC"
-            cur = self._arccon.cursor()
-            cur.execute(selectStm, (patnr,))
-            
-            added = False
-            for (surogat, beschreibung, eintragsart, zeit, datum) in cur:
-                add = True
-                if not self._config.getValue("showRemovedItems", False):
-                    select2 = "SELECT COUNT(*) FROM LTAG l WHERE l.FEINTRAGSNR = ? AND l.FEINTRAGSART = ?"
-                    cur2 = self._con.cursor()
-                    cur2.execute(select2, (surogat, eintragsart))
-                    if cur2.fetchone()[0] == 0:
-                        add = False
+            if self._arccon is not None:
+                selectStm = "SELECT a.FSUROGAT, a.FTEXT, a.FEINTRAGSART, a.FZEIT, a.FDATUM FROM ARCHIV a WHERE a.FPATNR = ? AND a.FEINTRAGSART > 0 ORDER BY a.FDATUM DESC, a.FZEIT DESC"
+                cur = self._arccon.cursor()
+                cur.execute(selectStm, (patnr,))
                 
-                if add:
-                    added = True
-                    self._unfilteredFiles.append({
-                        'id': surogat,
-                        'datum': self._startDate + timedelta(days = datum, seconds = zeit),
-                        'beschreibung': beschreibung,
-                        'category': eintragsart,
-                        'medoffarc': True
-                    })
+                added = False
+                for (surogat, beschreibung, eintragsart, zeit, datum) in cur:
+                    add = True
+                    if not self._config.getValue("showRemovedItems", False):
+                        select2 = "SELECT COUNT(*) FROM LTAG l WHERE l.FEINTRAGSNR = ? AND l.FEINTRAGSART = ?"
+                        cur2 = self._con.cursor()
+                        cur2.execute(select2, (surogat, eintragsart))
+                        if cur2.fetchone()[0] == 0:
+                            add = False
+                    
+                    if add:
+                        added = True
+                        self._unfilteredFiles.append({
+                            'id': surogat,
+                            'datum': self._startDate + timedelta(days = datum, seconds = zeit),
+                            'beschreibung': beschreibung,
+                            'category': eintragsart,
+                            'medoffarc': True
+                        })
             
             self._unfilteredFiles.sort(key = lambda x: x['datum'], reverse = True)
             
@@ -686,14 +687,18 @@ def main():
         con = fdb.connect(host=defaultHost, database=defaultDb, port=2013,
             user=defaultDbUser, password=defaultDbPassword, fb_library_name=defaultClientLib)
         LOGGER.debug("Connection established.")
+    except Exception as e:
+        displayErrorMessage('Fehler beim Verbinden mit der Datenbank: {}. Pfad zur DLL-Datei: {}'.format(e, defaultClientLib))
+        sys.exit()
+        
+    try:
         LOGGER.debug("Connecting archive db '{}' at '{}', port 2013 as user {}".format(defaultArcDb, defaultHost, defaultDbUser))
         arccon = fdb.connect(host=defaultHost, database=defaultArcDb, port=2013,
             user=defaultDbUser, password=defaultDbPassword, fb_library_name=defaultClientLib)
         LOGGER.debug("Connection established.")
     except Exception as e:
-        displayErrorMessage('Fehler beim Verbinden mit der Datenbank: {}. Pfad zur DLL-Datei: {}'.format(e, defaultClientLib))
-        sys.exit()
-        
+        displayErrorMessage('Fehler beim Verbinden mit der Archivdatenbank: {}. Dieser Fehler kann bedenkenlos ignoriert werden, falls keine Archivdatenbank verfügbar ist (z.B. auf Mobilsystemen).'.format(e))
+        arccon = None    
     try:
         cur = con.cursor()
         stm = "SELECT FVARVALUE FROM MED95INI WHERE FCLIENTNAME=? AND FVARNAME='PatexportDatei'"
