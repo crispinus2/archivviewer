@@ -87,3 +87,5 @@ auch wenn es nicht den Fokus hat. Sobald die Maus das Fenster verlässt, wird es
 
 Beim PDF-Export werden, wenn nichts ausgewählt ist, alle aufgelisteten, ansonsten nur die ausgewählten Dokumente in ein Sammel-PDF exportiert, welches dann weitergegeben
 oder gedruckt werden kann. Beim Klick auf den Export-Button öffnet sich ein Dialog zur Auswahl des gewünschten Speicherorts.
+Seit Version 16 wird auch die Größenoptimierung von erstellten PDF-Dateien unterstützt. Hierzu muss Ghostscript installiert werden. Wenn die Ghostscript-Installation gefunden wurde, wird im `Datei`-Menü ein entsprechender Eintrag
+freigeschaltet, um die Optimierung zu aktivieren (dieser ist standardmäßig eingeschaltet).
