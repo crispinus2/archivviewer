@@ -9,7 +9,7 @@ except ImportError:
     build_ui = None  # user won't have pyqt_distutils when deploying
     cmdclass = {}
 
-version='15'
+version='16'
 
 setup(
     name='ArchivViewer',

@@ -23,6 +23,7 @@ from .GenerateFileWorker import GenerateFileWorker
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
+AVVERSION = '16'
 
 def displayErrorMessage(msg):
     QMessageBox.critical(None, "Fehler", str(msg))
@@ -771,11 +772,11 @@ def main():
         event_handler = FileChangeHandler(gdtfile, tm)
         av.action_quit.triggered.connect(lambda: app.quit())
         av.action_about.triggered.connect(lambda: QMessageBox.about(av, "Über Archiv Viewer", 
-            """<p><b>Archiv Viewer</b> ist eine zur Verwendung mit Medical Office der Fa. Indamed entwickelte
+            """<p><b>Archiv Viewer {}</b> ist eine zur Verwendung mit Medical Office der Fa. Indamed entwickelte
              Software, die synchron zur Medical Office-Anwendung die gespeicherten Dokumente eines Patienten im Archiv
              anzeigen kann. Zusätzlich können ausgewählte Dokumente auch als PDF-Datei exportiert werden.</p>
              <p><a href=\"https://github.com/crispinus2/archivviewer\">https://github.com/crispinus2/archivviewer</a></p>
-             <p>(c) 2020 Julian Hartig - Lizensiert unter den Bedingungen der GPLv3</p>"""))
+             <p>(c) 2020 Julian Hartig - Lizensiert unter den Bedingungen der GPLv3</p>""".format(AVVERSION)))
         
         observer = Observer()
         observer.schedule(event_handler, path=os.path.dirname(gdtfile), recursive=False)
